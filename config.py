@@ -10,9 +10,15 @@ load_dotenv()
 class Config:
     """Configuration class for API credentials and settings"""
     
-    # RapidAPI credentials
+    # RapidAPI credentials (for AliExpress)
     RAPIDAPI_KEY = os.getenv('RAPIDAPI_KEY')
     RAPIDAPI_HOST = os.getenv('RAPIDAPI_HOST', 'aliexpress-datahub.p.rapidapi.com')
+    
+    # eBay API credentials
+    EBAY_APP_ID = os.getenv('EBAY_APP_ID')
+    EBAY_CERT_ID = os.getenv('EBAY_CERT_ID')
+    EBAY_DEV_ID = os.getenv('EBAY_DEV_ID')
+    EBAY_ENVIRONMENT = os.getenv('EBAY_ENVIRONMENT', 'PRODUCTION')  # PRODUCTION or SANDBOX
     
     # API endpoints
     API_BASE_URL = f'https://{RAPIDAPI_HOST}'
@@ -32,7 +38,14 @@ class Config:
         """Validate that all required configuration is present"""
         if not cls.RAPIDAPI_KEY:
             raise ValueError(
-                "Missing API credentials. Please set RAPIDAPI_KEY in your .env file.\n"
+                "Missing AliExpress API credentials. Please set RAPIDAPI_KEY in your .env file.\n"
                 "Get your key from https://rapidapi.com/"
             )
+        
+        if not cls.EBAY_APP_ID or not cls.EBAY_CERT_ID:
+            raise ValueError(
+                "Missing eBay API credentials. Please set EBAY_APP_ID and EBAY_CERT_ID in your .env file.\n"
+                "Get your credentials from https://developer.ebay.com/"
+            )
+        
         return True

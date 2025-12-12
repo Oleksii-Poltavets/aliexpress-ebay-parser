@@ -1,0 +1,213 @@
+"""
+eBay API client for product information retrieval
+Uses OAuth 2.0 Client Credentials flow for authentication
+"""
+import requests
+import base64
+import time
+from config import Config
+from logger import get_logger
+
+logger = get_logger(__name__)
+
+
+class EbayAPI:
+    """Client for eBay Browse API"""
+    
+    def __init__(self):
+        self.app_id = Config.EBAY_APP_ID
+        self.cert_id = Config.EBAY_CERT_ID
+        self.environment = Config.EBAY_ENVIRONMENT
+        
+        # Set base URLs based on environment
+        if self.environment == 'PRODUCTION':
+            self.api_base_url = 'https://api.ebay.com'
+            self.auth_url = 'https://api.ebay.com/identity/v1/oauth2/token'
+        else:  # SANDBOX
+            self.api_base_url = 'https://api.sandbox.ebay.com'
+            self.auth_url = 'https://api.sandbox.ebay.com/identity/v1/oauth2/token'
+        
+        self.access_token = None
+        self.token_expiry = 0
+        
+        logger.info(f"Initialized eBay API client ({self.environment} environment)")
+    
+    def _get_access_token(self):
+        """
+        Get OAuth 2.0 access token using client credentials flow
+        
+        Returns:
+            Access token string
+        """
+        # Check if we have a valid token
+        if self.access_token and time.time() < self.token_expiry:
+            return self.access_token
+        
+        logger.info("Requesting new eBay OAuth token...")
+        
+        # Create authorization header (Base64 encoded "AppID:CertID")
+        credentials = f"{self.app_id}:{self.cert_id}"
+        b64_credentials = base64.b64encode(credentials.encode()).decode()
+        
+        headers = {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': f'Basic {b64_credentials}'
+        }
+        
+        data = {
+            'grant_type': 'client_credentials',
+            'scope': 'https://api.ebay.com/oauth/api_scope'
+        }
+        
+        try:
+            response = requests.post(
+                self.auth_url,
+                headers=headers,
+                data=data,
+                timeout=Config.REQUEST_TIMEOUT
+            )
+            response.raise_for_status()
+            
+            token_data = response.json()
+            self.access_token = token_data['access_token']
+            # Set expiry to 5 minutes before actual expiry for safety
+            self.token_expiry = time.time() + token_data['expires_in'] - 300
+            
+            logger.info("Successfully obtained eBay OAuth token")
+            return self.access_token
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to get eBay access token: {e}")
+            if hasattr(e.response, 'text'):
+                logger.error(f"Response: {e.response.text}")
+            raise
+    
+    def get_product_details(self, item_id):
+        """
+        Get product details using eBay Browse API
+        
+        Args:
+            item_id: eBay item ID (legacy item ID or new v1|itemId|0 format)
+            
+        Returns:
+            Dictionary with product details or None on error
+        """
+        token = self._get_access_token()
+        
+        # Try to get item using legacy ID first (more common from URLs)
+        url = f"{self.api_base_url}/buy/browse/v1/item/get_item_by_legacy_id"
+        
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US'  # Can be made configurable
+        }
+        
+        params = {
+            'legacy_item_id': item_id
+        }
+        
+        try:
+            logger.info(f"Fetching eBay product details for item {item_id}")
+            response = requests.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=Config.REQUEST_TIMEOUT
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            logger.info(f"Successfully fetched details for eBay item {item_id}")
+            return data
+            
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"Request failed for product {item_id}: {e}")
+            if hasattr(e.response, 'text'):
+                logger.error(f"Response: {e.response.text}")
+            return None
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request failed for product {item_id}: {e}")
+            return None
+    
+    def check_availability(self, item_id):
+        """
+        Check if a product is available for purchase
+        
+        Args:
+            item_id: eBay item ID
+            
+        Returns:
+            Tuple of (is_available: bool, quantity: int, reason: str)
+        """
+        product_data = self.get_product_details(item_id)
+        
+        if not product_data:
+            return False, 0, "Failed to fetch product data"
+        
+        # Check if item is available for purchase
+        available_quantity = product_data.get('estimatedAvailabilities', [{}])[0].get('estimatedAvailableQuantity', 0)
+        
+        # Check item condition (buyingOptions)
+        buying_options = product_data.get('buyingOptions', [])
+        
+        # Check if item is active (itemWebUrl exists and no error messages)
+        is_active = bool(product_data.get('itemWebUrl'))
+        
+        if not is_active:
+            return False, 0, "Item is not active"
+        
+        if available_quantity > 0:
+            return True, available_quantity, "Available"
+        else:
+            return False, 0, "Out of stock"
+    
+    def get_product_images(self, item_id):
+        """
+        Get product image URLs
+        
+        Args:
+            item_id: eBay item ID
+            
+        Returns:
+            List of image URLs
+        """
+        product_data = self.get_product_details(item_id)
+        
+        if not product_data:
+            logger.warning(f"No product data found for {item_id}")
+            return []
+        
+        images = []
+        
+        # Get main image
+        if 'image' in product_data:
+            image_url = product_data['image'].get('imageUrl')
+            if image_url:
+                images.append(image_url)
+        
+        # Get additional images
+        if 'additionalImages' in product_data:
+            for img in product_data['additionalImages']:
+                image_url = img.get('imageUrl')
+                if image_url:
+                    images.append(image_url)
+        
+        logger.info(f"Found {len(images)} images for eBay product {item_id}")
+        return images
+    
+    def get_product_title(self, item_id):
+        """
+        Get product title
+        
+        Args:
+            item_id: eBay item ID
+            
+        Returns:
+            Product title string or None
+        """
+        product_data = self.get_product_details(item_id)
+        
+        if not product_data:
+            return None
+        
+        return product_data.get('title', 'Unknown Product')

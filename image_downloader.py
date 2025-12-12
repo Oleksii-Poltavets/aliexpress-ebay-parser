@@ -81,13 +81,14 @@ class ImageDownloader:
             print(f"Error processing image {url}: {e}")
             return False
     
-    def download_product_images(self, product_id, image_urls):
+    def download_product_images(self, product_id, image_urls, custom_folder_name=None):
         """
         Download all images for a product
         
         Args:
             product_id: Product ID
             image_urls: List of image URLs
+            custom_folder_name: Optional custom folder name (e.g., row number)
             
         Returns:
             Dictionary with download statistics
@@ -102,14 +103,16 @@ class ImageDownloader:
                 'folder': None
             }
         
-        # Create product folder
-        product_folder = self.create_product_folder(product_id)
+        # Use custom folder name if provided, otherwise use product_id
+        folder_name = custom_folder_name if custom_folder_name is not None else product_id
+        product_folder = Path(self.base_folder) / str(folder_name)
+        product_folder.mkdir(parents=True, exist_ok=True)
         
         downloaded = 0
         failed = 0
         
         for idx, url in enumerate(image_urls, start=1):
-            # Generate filename
+            # Generate filename using product_id (not folder name)
             filename = f"{product_id}_image_{idx}.jpg"
             save_path = product_folder / filename
             

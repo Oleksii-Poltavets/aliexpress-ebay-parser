@@ -119,6 +119,28 @@ class TableProcessor:
         
         return links
     
+    def get_folder_names(self, column_name='num'):
+        """
+        Get folder names from a specific column
+        
+        Args:
+            column_name: Column name containing folder identifiers
+            
+        Returns:
+            List of folder names corresponding to product links
+        """
+        if self.df is None:
+            return []
+        
+        if column_name not in self.df.columns:
+            print(f"Warning: Column '{column_name}' not found. Available columns: {', '.join(self.df.columns)}")
+            return [None] * len(self.df)
+        
+        # Get folder names, convert to string
+        folder_names = [str(val) if pd.notna(val) else None for val in self.df[column_name]]
+        
+        return folder_names
+    
     def add_results_columns(self, results):
         """
         Add processing results back to the dataframe
@@ -131,6 +153,8 @@ class TableProcessor:
             return
         
         # Initialize new columns if they don't exist
+        if 'row_number' not in self.df.columns:
+            self.df['row_number'] = None
         if 'product_id' not in self.df.columns:
             self.df['product_id'] = None
         if 'availability' not in self.df.columns:
@@ -146,6 +170,7 @@ class TableProcessor:
         for result in results:
             idx = result.get('row_index')
             if idx is not None and idx < len(self.df):
+                self.df.at[idx, 'row_number'] = result.get('row_number')
                 self.df.at[idx, 'product_id'] = result.get('product_id')
                 self.df.at[idx, 'availability'] = result.get('available')
                 self.df.at[idx, 'stock_quantity'] = result.get('stock_quantity')

@@ -1,5 +1,5 @@
 """
-Utility functions for parsing AliExpress product links
+Utility functions for parsing AliExpress and eBay product links
 """
 import re
 from urllib.parse import urlparse, parse_qs
@@ -78,3 +78,75 @@ def normalize_url(url):
         return url
     
     return f"https://www.aliexpress.com/item/{product_id}.html"
+
+
+# eBay URL parsing functions
+
+def extract_ebay_item_id(url):
+    """
+    Extract item ID from eBay URL
+    
+    Args:
+        url: eBay product URL
+        
+    Returns:
+        Item ID as string, or None if not found
+        
+    Examples:
+        https://www.ebay.com/itm/123456789012 -> 123456789012
+        https://ebay.com/itm/123456789012?param=value -> 123456789012
+    """
+    # Pattern 1: /itm/{item_id}
+    pattern1 = r'/itm/(\d+)'
+    match = re.search(pattern1, url)
+    if match:
+        return match.group(1)
+    
+    # Pattern 2: Query parameter item or itemId
+    parsed = urlparse(url)
+    params = parse_qs(parsed.query)
+    
+    if 'item' in params:
+        return params['item'][0]
+    if 'itemId' in params:
+        return params['itemId'][0]
+    
+    return None
+
+
+def validate_ebay_url(url):
+    """
+    Validate if URL is from eBay
+    
+    Args:
+        url: URL string to validate
+        
+    Returns:
+        Boolean indicating if URL is valid eBay URL
+    """
+    if not url:
+        return False
+    
+    parsed = urlparse(url)
+    domain = parsed.netloc.lower()
+    
+    return 'ebay.com' in domain
+
+
+def detect_marketplace(url):
+    """
+    Detect which marketplace a URL belongs to
+    
+    Args:
+        url: Product URL
+        
+    Returns:
+        String: 'aliexpress', 'ebay', or 'unknown'
+    """
+    if validate_aliexpress_url(url):
+        return 'aliexpress'
+    elif validate_ebay_url(url):
+        return 'ebay'
+    else:
+        return 'unknown'
+
