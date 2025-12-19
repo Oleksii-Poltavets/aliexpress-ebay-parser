@@ -121,12 +121,91 @@ class EbayAPI:
             return data
             
         except requests.exceptions.HTTPError as e:
+            # Check if this is an item group (error 11006)
+            if e.response.status_code == 400:
+                try:
+                    error_data = e.response.json()
+                    if error_data.get('errors', [{}])[0].get('errorId') == 11006:
+                        # This is an item group, try getting group details
+                        logger.info(f"Item {item_id} is an item group, fetching group details")
+                        return self._get_item_group_details(item_id)
+                except:
+                    pass
+            
             logger.error(f"Request failed for product {item_id}: {e}")
             if hasattr(e.response, 'text'):
                 logger.error(f"Response: {e.response.text}")
             return None
         except requests.exceptions.RequestException as e:
             logger.error(f"Request failed for product {item_id}: {e}")
+            return None
+    
+    def _get_item_group_details(self, item_group_id):
+        """
+        Get item group details (for listings with variations)
+        
+        Args:
+            item_group_id: eBay item group ID
+            
+        Returns:
+            Dictionary with aggregated item group details or None on error
+        """
+        token = self._get_access_token()
+        
+        url = f"{self.api_base_url}/buy/browse/v1/item/get_items_by_item_group"
+        
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US'
+        }
+        
+        params = {
+            'item_group_id': item_group_id
+        }
+        
+        try:
+            logger.info(f"Fetching eBay item group details for {item_group_id}")
+            response = requests.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=Config.REQUEST_TIMEOUT
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            items = data.get('items', [])
+            
+            if not items:
+                logger.warning(f"No items found in group {item_group_id}")
+                return None
+            
+            # Return the first item from the group as representative
+            # but mark it as an item group
+            first_item = items[0]
+            first_item['_is_item_group'] = True
+            first_item['_item_group_size'] = len(items)
+            
+            # Aggregate availability from all items in the group
+            total_quantity = 0
+            for item in items:
+                qty = item.get('estimatedAvailabilities', [{}])[0].get('estimatedAvailableQuantity', 0)
+                total_quantity += qty
+            
+            # Update the quantity to reflect total across all variations
+            if first_item.get('estimatedAvailabilities'):
+                first_item['estimatedAvailabilities'][0]['estimatedAvailableQuantity'] = total_quantity
+            
+            logger.info(f"Successfully fetched item group {item_group_id} with {len(items)} variations")
+            return first_item
+            
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"Request failed for item group {item_group_id}: {e}")
+            if hasattr(e.response, 'text'):
+                logger.error(f"Response: {e.response.text}")
+            return None
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request failed for item group {item_group_id}: {e}")
             return None
     
     def check_availability(self, item_id):
@@ -143,6 +222,17 @@ class EbayAPI:
         
         if not product_data:
             return False, 0, "Failed to fetch product data"
+        
+        # Check if listing has ended
+        item_end_date = product_data.get('itemEndDate')
+        if item_end_date:
+            from datetime import datetime
+            try:
+                end_date = datetime.fromisoformat(item_end_date.replace('Z', '+00:00'))
+                if end_date < datetime.now(end_date.tzinfo):
+                    return False, 0, "Listing has ended"
+            except:
+                pass  # If date parsing fails, continue with other checks
         
         # Check if item is available for purchase
         available_quantity = product_data.get('estimatedAvailabilities', [{}])[0].get('estimatedAvailableQuantity', 0)
