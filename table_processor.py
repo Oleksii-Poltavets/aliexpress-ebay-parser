@@ -157,6 +157,12 @@ class TableProcessor:
             self.df['row_number'] = None
         if 'product_id' not in self.df.columns:
             self.df['product_id'] = None
+        if 'title' not in self.df.columns:
+            self.df['title'] = None
+        if 'description' not in self.df.columns:
+            self.df['description'] = None
+        if 'price' not in self.df.columns:
+            self.df['price'] = None
         if 'availability' not in self.df.columns:
             self.df['availability'] = None
         if 'stock_quantity' not in self.df.columns:
@@ -172,6 +178,9 @@ class TableProcessor:
             if idx is not None and idx < len(self.df):
                 self.df.at[idx, 'row_number'] = result.get('row_number')
                 self.df.at[idx, 'product_id'] = result.get('product_id')
+                self.df.at[idx, 'title'] = result.get('title')
+                self.df.at[idx, 'description'] = result.get('description')
+                self.df.at[idx, 'price'] = result.get('price')
                 self.df.at[idx, 'availability'] = result.get('available')
                 self.df.at[idx, 'stock_quantity'] = result.get('stock_quantity')
                 self.df.at[idx, 'images_downloaded'] = result.get('images_downloaded')

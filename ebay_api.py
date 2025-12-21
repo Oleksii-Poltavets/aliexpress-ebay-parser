@@ -5,6 +5,7 @@ Uses OAuth 2.0 Client Credentials flow for authentication
 import requests
 import base64
 import time
+import re
 from config import Config
 from logger import get_logger
 
@@ -301,3 +302,76 @@ class EbayAPI:
             return None
         
         return product_data.get('title', 'Unknown Product')
+    
+    def get_product_price(self, item_id):
+        """
+        Get product price information
+        
+        Args:
+            item_id: eBay item ID
+            
+        Returns:
+            Dictionary with price information (currency, value, formatted)
+        """
+        product_data = self.get_product_details(item_id)
+        
+        if not product_data:
+            return {
+                'currency': 'N/A',
+                'value': None,
+                'formatted': 'N/A'
+            }
+        
+        # Get price from product data
+        price_obj = product_data.get('price', {})
+        
+        if isinstance(price_obj, dict):
+            currency = price_obj.get('currency', 'USD')
+            value = price_obj.get('value')
+            
+            if value is not None:
+                formatted = f"{currency} {value}"
+            else:
+                formatted = 'N/A'
+        else:
+            currency = 'N/A'
+            value = None
+            formatted = 'N/A'
+        
+        return {
+            'currency': currency,
+            'value': value,
+            'formatted': formatted
+        }
+    
+    def get_product_description(self, item_id):
+        """
+        Get full product description from seller
+        
+        Args:
+            item_id: eBay item ID
+            
+        Returns:
+            Product description string or None
+        """
+        product_data = self.get_product_details(item_id)
+        
+        if not product_data:
+            return None
+        
+        # Get full description from seller
+        # eBay Browse API provides description in the 'description' field
+        # which contains the full HTML description from the seller
+        description = product_data.get('description')
+        
+        if not description:
+            # Fallback to shortDescription if description is not available
+            description = product_data.get('shortDescription')
+        
+        if description:
+            # Strip HTML tags
+            description = re.sub(r'<[^>]+>', '', description)
+            # Clean up extra whitespace and newlines
+            description = re.sub(r'\s+', ' ', description).strip()
+        
+        return description or 'N/A'

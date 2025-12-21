@@ -5,6 +5,7 @@ Using Aliexpress DataHub API
 import time
 import requests
 import json
+import re
 from config import Config
 
 
@@ -205,3 +206,123 @@ class AliExpressAPI:
                 unique_images.append(img)
         
         return unique_images
+    
+    def get_product_title(self, product_id):
+        """
+        Get product title
+        
+        Args:
+            product_id: AliExpress product ID
+            
+        Returns:
+            Product title string or None
+        """
+        product_data = self.get_product_details(product_id)
+        
+        if not product_data:
+            return None
+        
+        result = product_data.get('result', {})
+        item = result.get('item', {})
+        
+        return item.get('title') or item.get('subject') or 'N/A'
+    
+    def get_product_price(self, product_id):
+        """
+        Get product price information
+        
+        Args:
+            product_id: AliExpress product ID
+            
+        Returns:
+            Dictionary with price information (currency, min_price, max_price, formatted)
+        """
+        product_data = self.get_product_details(product_id)
+        
+        if not product_data:
+            return {
+                'currency': 'N/A',
+                'min_price': None,
+                'max_price': None,
+                'formatted': 'N/A'
+            }
+        
+        result = product_data.get('result', {})
+        item = result.get('item', {})
+        
+        # Try to get price from various possible fields
+        price_info = {}
+        
+        # Get currency
+        currency = item.get('currency') or item.get('targetCurrency') or 'USD'
+        
+        # Try to get price from salePrice or price object
+        sale_price = item.get('salePrice', {})
+        if isinstance(sale_price, dict):
+            min_price = sale_price.get('min') or sale_price.get('minPrice')
+            max_price = sale_price.get('max') or sale_price.get('maxPrice')
+        else:
+            # Try other fields
+            min_price = (
+                item.get('minPrice') or 
+                item.get('price') or 
+                item.get('targetMinPrice') or
+                item.get('sku_min_price')
+            )
+            max_price = (
+                item.get('maxPrice') or 
+                item.get('targetMaxPrice') or
+                item.get('sku_max_price')
+            )
+        
+        # Format price string
+        if min_price is not None and max_price is not None:
+            if min_price == max_price:
+                formatted = f"{currency} {min_price}"
+            else:
+                formatted = f"{currency} {min_price} - {max_price}"
+        elif min_price is not None:
+            formatted = f"{currency} {min_price}"
+        else:
+            formatted = 'N/A'
+        
+        return {
+            'currency': currency,
+            'min_price': min_price,
+            'max_price': max_price,
+            'formatted': formatted
+        }
+    
+    def get_product_description(self, product_id):
+        """
+        Get full product description from seller
+        
+        Args:
+            product_id: AliExpress product ID
+            
+        Returns:
+            Product description string or None
+        """
+        product_data = self.get_product_details(product_id)
+        
+        if not product_data:
+            return None
+        
+        result = product_data.get('result', {})
+        item = result.get('item', {})
+        
+        # Try various description fields - prioritize full description
+        description = (
+            item.get('description') or 
+            item.get('productDescription') or
+            item.get('detail') or
+            item.get('descriptionUrl')  # Sometimes only URL is provided
+        )
+        
+        if description:
+            # Strip HTML tags
+            description = re.sub(r'<[^>]+>', '', description)
+            # Clean up extra whitespace and newlines
+            description = re.sub(r'\s+', ' ', description).strip()
+        
+        return description or 'N/A'

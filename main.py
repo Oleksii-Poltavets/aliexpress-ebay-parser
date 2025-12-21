@@ -47,6 +47,9 @@ class ProductScraper:
             'folder_name': folder_name,
             'marketplace': None,
             'product_id': None,
+            'title': None,
+            'description': None,
+            'price': None,
             'available': False,
             'stock_quantity': None,
             'images_downloaded': 0,
@@ -82,6 +85,21 @@ class ProductScraper:
         
         result['product_id'] = product_id
         print(f"Product ID: {product_id}")
+        
+        # Get product details (title, description, price)
+        print("\nFetching product details...")
+        title = self.aliexpress_api.get_product_title(product_id)
+        description = self.aliexpress_api.get_product_description(product_id)
+        price_info = self.aliexpress_api.get_product_price(product_id)
+        
+        result['title'] = title
+        result['description'] = description
+        result['price'] = price_info.get('formatted', 'N/A')
+        
+        if title:
+            print(f"Title: {title}")
+        if price_info.get('formatted'):
+            print(f"Price: {price_info['formatted']}")
         
         # Check availability
         print("\nChecking availability...")
@@ -125,6 +143,21 @@ class ProductScraper:
         
         result['product_id'] = item_id
         print(f"Item ID: {item_id}")
+        
+        # Get product details (title, description, price)
+        print("\nFetching product details...")
+        title = self.ebay_api.get_product_title(item_id)
+        description = self.ebay_api.get_product_description(item_id)
+        price_info = self.ebay_api.get_product_price(item_id)
+        
+        result['title'] = title
+        result['description'] = description
+        result['price'] = price_info.get('formatted', 'N/A')
+        
+        if title:
+            print(f"Title: {title}")
+        if price_info.get('formatted'):
+            print(f"Price: {price_info['formatted']}")
         
         # Check availability
         print("\nChecking availability...")
