@@ -1,0 +1,213 @@
+{
+  "result": {
+    "status": {
+      "code": 200,
+      "attempt": 1,
+      "data": "success",
+      "executionTime": "1.38",
+      "requestTime": "2025-12-24 08:31:48",
+      "requestId": "162547597501dd6884818d7bef1fa990",
+      "endpoint": "item_detail_6",
+      "apiVersion": "4.0.5",
+      "functionsVersion": "4.0.8",
+      "la": "0.20",
+      "pmu": 449544,
+      "mu": 449256
+    },
+    "settings": {
+      "locale": "en_US",
+      "currency": "USD",
+      "country": "US",
+      "itemId": "1005004049949624"
+    },
+    "item": {
+      "available": true,
+      "itemId": 1005004049949624,
+      "title": "UNY Earring Antique Jewelry Earrings Designer Inspired David Women Earring Brand French Clip CZ Cable Wire Vintage Earrings Gift",
+      "catId": 200000171,
+      "itemUrl": "//www.aliexpress.com/item/1005004049949624.html",
+      "images": [
+        "//ae01.alicdn.com/kf/Se06071204a6641f288f08806f695f3abc.jpg",
+        "//ae01.alicdn.com/kf/Sb4bbaeabc94e41f2958edc6a27e113c5c.jpg",
+        "//ae01.alicdn.com/kf/Sfd1b5aff07634cc2b1e599499ee4d1ff2.jpg",
+        "//ae01.alicdn.com/kf/Se1c0993fe5174a5481561eaf624fa8612.jpg",
+        "//ae01.alicdn.com/kf/Sea8a5ac81372483695b9cadbf3a8da52P.jpg"
+      ],
+      "video": null,
+      "properties": {
+        "cut": "Brand Name / Origin / CN / High-concerned chemical / Metals Type / Model Number / Item Type / Style / Material / Back Finding / Earring Type / Shape\\pattern / Gender / Fine or Fashion / fine or fashion / item type / earring type / gender / compatibility / back finding / metals type / material / shape\\pattern / style",
+        "list": [
+          {
+            "name": "Brand Name",
+            "value": "uny"
+          },
+          {
+            "name": "Origin",
+            "value": "Mainland China"
+          },
+          {
+            "name": "CN",
+            "value": "Guangdong"
+          },
+          {
+            "name": "High-concerned chemical",
+            "value": "None"
+          },
+          {
+            "name": "Metals Type",
+            "value": "Zinc Alloy"
+          },
+          {
+            "name": "Model Number",
+            "value": "UNY045"
+          },
+          {
+            "name": "Item Type",
+            "value": "Earrings"
+          },
+          {
+            "name": "Style",
+            "value": "Classic"
+          },
+          {
+            "name": "Material",
+            "value": "Metal"
+          },
+          {
+            "name": "Back Finding",
+            "value": "Push-back"
+          },
+          {
+            "name": "Earring Type",
+            "value": "Stud Earrings"
+          },
+          {
+            "name": "Shape\\pattern",
+            "value": "semicircle"
+          },
+          {
+            "name": "Gender",
+            "value": "Women"
+          },
+          {
+            "name": "Fine or Fashion",
+            "value": "Fashion"
+          },
+          {
+            "name": "fine or fashion",
+            "value": "fashion Earrings"
+          },
+          {
+            "name": "item type",
+            "value": "earrings"
+          },
+          {
+            "name": "earring type",
+            "value": "french clip earrings"
+          },
+          {
+            "name": "gender",
+            "value": "women Earrings"
+          },
+          {
+            "name": "compatibility",
+            "value": "all compatible"
+          },
+          {
+            "name": "back finding",
+            "value": "culp Earrings"
+          },
+          {
+            "name": "metals type",
+            "value": "zinc alloy Earrings"
+          },
+          {
+            "name": "material",
+            "value": "metal Earrings"
+          },
+          {
+            "name": "shape\\pattern",
+            "value": "geometric Earrings"
+          },
+          {
+            "name": "style",
+            "value": "classic Earrings"
+          }
+        ]
+      },
+      "description": {
+        "html": "<p><img src=\"//ae01.alicdn.com/kf/Se06071204a6641f288f08806f695f3abc.jpg\" slate-data-type=\"image\"/><img src=\"//ae01.alicdn.com/kf/Sb4bbaeabc94e41f2958edc6a27e113c5c.jpg\" slate-data-type=\"image\"/><img src=\"//ae01.alicdn.com/kf/Sfd1b5aff07634cc2b1e599499ee4d1ff2.jpg\" slate-data-type=\"image\"/><img src=\"//ae01.alicdn.com/kf/Se1c0993fe5174a5481561eaf624fa8612.jpg\" slate-data-type=\"image\"/><img src=\"//ae01.alicdn.com/kf/Sea8a5ac81372483695b9cadbf3a8da52P.jpg\" slate-data-type=\"image\"/></p>",
+        "images": [
+          "//ae01.alicdn.com/kf/Se06071204a6641f288f08806f695f3abc.jpg",
+          "//ae01.alicdn.com/kf/Sb4bbaeabc94e41f2958edc6a27e113c5c.jpg",
+          "//ae01.alicdn.com/kf/Sfd1b5aff07634cc2b1e599499ee4d1ff2.jpg",
+          "//ae01.alicdn.com/kf/Se1c0993fe5174a5481561eaf624fa8612.jpg",
+          "//ae01.alicdn.com/kf/Sea8a5ac81372483695b9cadbf3a8da52P.jpg"
+        ]
+      },
+      "sku": {
+        "def": {
+          "quantity": 735,
+          "price": "17.02",
+          "promotionPrice": "11.91"
+        },
+        "base": [
+          {
+            "skuId": "12000027861827604",
+            "skuAttr": "",
+            "propMap": "",
+            "price": "17.02",
+            "promotionPrice": "11.91",
+            "quantity": 735,
+            "ext": "XX1ZtSWW_ki5r9ZqIMtVNa0GLp67tAPHXUhf_1UnZTMxzTNDDGZUOaM8OZIKtD9N3k6IPwieqZikC3juKwwxYkOGZLzq1OIB0EEsKtWTB_FuGBVRjx7jNscrQcZjZzkV"
+          }
+        ],
+        "props": null,
+        "skuImages": null
+      }
+    },
+    "reviews": {
+      "count": "5",
+      "averageStar": "4.4"
+    },
+    "delivery": {
+      "shippingToCode": "US",
+      "shippingOutDays": 5,
+      "shippingList": [
+        {
+          "shippingFromCode": "CN",
+          "shippingToCode": "US",
+          "shippingFee": "0",
+          "shippingCompany": "AliExpress standard shipping",
+          "shippingTime": "8-17",
+          "serviceName": "CAINIAO_STANDARD",
+          "estimateDelivery": "Dec. 31 - Jan. 09",
+          "estimateDeliveryDate": "2026-01-10",
+          "trackingAvailable": true
+        },
+        {
+          "shippingFromCode": "CN",
+          "shippingToCode": "US",
+          "shippingFee": "7.61",
+          "shippingCompany": "AliExpress Premium shipping",
+          "shippingTime": "7-15",
+          "serviceName": "CAINIAO_PREMIUM",
+          "estimateDelivery": "Dec. 30 - Jan. 07",
+          "estimateDeliveryDate": "2026-01-08",
+          "trackingAvailable": true
+        }
+      ],
+      "packageDetail": {
+        "weight": "0.025",
+        "length": 2,
+        "height": 1,
+        "width": 4
+      }
+    },
+    "seller": {
+      "storeTitle": "Shop1100264077 Store",
+      "storeId": 1102030220,
+      "storeUrl": "//www.aliexpress.com/store/1102030220"
+    }
+  }
+}

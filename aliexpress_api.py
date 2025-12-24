@@ -121,14 +121,20 @@ class AliExpressAPI:
             is_available = False
             reason = 'Product not found'
         else:
-            # Check stock availability
-            if 'totalAvailableStock' in item:
+            # Check stock availability - try sku.def.quantity first
+            sku = item.get('sku', {})
+            sku_def = sku.get('def', {})
+            
+            if 'quantity' in sku_def:
+                stock_quantity = sku_def.get('quantity', 0)
+                if stock_quantity <= 0:
+                    is_available = False
+                    reason = 'Out of stock'
+            elif 'totalAvailableStock' in item:
                 stock_quantity = item.get('totalAvailableStock', 0)
                 if stock_quantity <= 0:
                     is_available = False
                     reason = 'Out of stock'
-            
-            # Alternative stock check
             elif 'stock' in item:
                 stock_quantity = item.get('stock', 0)
                 if stock_quantity <= 0:
@@ -253,27 +259,66 @@ class AliExpressAPI:
         # Try to get price from various possible fields
         price_info = {}
         
-        # Get currency
-        currency = item.get('currency') or item.get('targetCurrency') or 'USD'
+        # Get currency from settings or item
+        settings = result.get('settings', {})
+        currency = settings.get('currency') or item.get('currency') or item.get('targetCurrency') or 'USD'
         
-        # Try to get price from salePrice or price object
-        sale_price = item.get('salePrice', {})
-        if isinstance(sale_price, dict):
-            min_price = sale_price.get('min') or sale_price.get('minPrice')
-            max_price = sale_price.get('max') or sale_price.get('maxPrice')
-        else:
-            # Try other fields
-            min_price = (
-                item.get('minPrice') or 
-                item.get('price') or 
-                item.get('targetMinPrice') or
-                item.get('sku_min_price')
-            )
-            max_price = (
-                item.get('maxPrice') or 
-                item.get('targetMaxPrice') or
-                item.get('sku_max_price')
-            )
+        # Try to get price from sku.def first (most reliable)
+        sku = item.get('sku', {})
+        sku_def = sku.get('def', {})
+        
+        min_price = None
+        max_price = None
+        
+        if sku_def:
+            # Use promotion price if available, otherwise regular price
+            promo_price = sku_def.get('promotionPrice')
+            regular_price = sku_def.get('price')
+            
+            # Helper to extract price from string that might contain ranges like "3.26 - 4.61"
+            def parse_price(price_val):
+                if price_val is None:
+                    return None
+                if isinstance(price_val, (int, float)):
+                    return float(price_val)
+                if isinstance(price_val, str):
+                    # Handle price ranges like "3.26 - 4.61"
+                    if ' - ' in price_val:
+                        parts = price_val.split(' - ')
+                        try:
+                            return float(parts[0].strip())  # Return minimum price
+                        except (ValueError, IndexError):
+                            pass
+                    try:
+                        return float(price_val)
+                    except ValueError:
+                        return None
+                return None
+            
+            if promo_price:
+                min_price = parse_price(promo_price)
+            elif regular_price:
+                min_price = parse_price(regular_price)
+        
+        # Fallback to other price fields if sku.def doesn't have price
+        if min_price is None:
+            sale_price = item.get('salePrice', {})
+            if isinstance(sale_price, dict):
+                min_price = sale_price.get('min') or sale_price.get('minPrice')
+                max_price = sale_price.get('max') or sale_price.get('maxPrice')
+            else:
+                # Try other fields
+                min_price = (
+                    item.get('minPrice') or 
+                    item.get('price') or 
+                    item.get('targetMinPrice') or
+                    item.get('sku_min_price')
+                )
+                max_price = (
+                    item.get('maxPrice') or 
+                    item.get('targetMaxPrice') or
+                    item.get('sku_max_price')
+                )
         
         # Format price string
         if min_price is not None and max_price is not None:
@@ -319,7 +364,18 @@ class AliExpressAPI:
             item.get('descriptionUrl')  # Sometimes only URL is provided
         )
         
-        if description:
+        # Handle if description is a dictionary
+        if isinstance(description, dict):
+            # Try to get HTML description first, then other common fields
+            description = (
+                description.get('html') or
+                description.get('text') or 
+                description.get('en') or 
+                description.get('english') or 
+                next(iter(description.values()), None) if description else None
+            )
+        
+        if description and isinstance(description, str):
             # Strip HTML tags
             description = re.sub(r'<[^>]+>', '', description)
             # Clean up extra whitespace and newlines
