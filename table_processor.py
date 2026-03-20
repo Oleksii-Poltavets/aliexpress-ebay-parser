@@ -29,7 +29,13 @@ class TableProcessor:
             if file_ext in ['.xlsx', '.xls']:
                 self.df = pd.read_excel(self.file_path, sheet_name=sheet_name)
             elif file_ext == '.csv':
-                self.df = pd.read_csv(self.file_path)
+                # Read CSV with proper quote handling for complex URLs
+                self.df = pd.read_csv(
+                    self.file_path,
+                    quotechar='"',
+                    escapechar='\\',
+                    encoding='utf-8'
+                )
             else:
                 print(f"Unsupported file format: {file_ext}")
                 return False

@@ -45,48 +45,60 @@ class AliExpressAPI:
         """
         self._rate_limit()
         
-        # Aliexpress DataHub endpoint - using item_detail_6 which has better data coverage
-        url = f"https://aliexpress-datahub.p.rapidapi.com/item_detail_6"
+        # Try multiple endpoints in order of preference
+        endpoints = ['item_detail_3', 'item_detail_2', 'item_detail_6']
         
-        querystring = {
-            'itemId': str(product_id)
-        }
+        for endpoint in endpoints:
+            url = f"https://aliexpress-datahub.p.rapidapi.com/{endpoint}"
+            
+            querystring = {
+                'itemId': str(product_id)
+            }
+            
+            try:
+                response = requests.get(
+                    url,
+                    headers=self.headers,
+                    params=querystring,
+                    timeout=Config.REQUEST_TIMEOUT
+                )
+                
+                # Check for rate limit error
+                if response.status_code == 429:
+                    print(f"⚠️ Rate limit exceeded! You've hit your API quota.")
+                    print(f"   Please wait for your quota to reset or upgrade your plan.")
+                    print(f"   Check: https://rapidapi.com/speedapi_com/api/aliexpress-datahub")
+                    return None
+                
+                response.raise_for_status()
+                
+                data = response.json()
+                
+                # Check for API errors or empty response
+                if not data or 'result' not in data:
+                    continue
+                
+                result = data.get('result', {})
+                status = result.get('status', {})
+                
+                # Check if request was successful
+                if status.get('code') == 200 and status.get('data') == 'success':
+                    print(f"✓ Using endpoint: {endpoint}")
+                    return data
+                else:
+                    # Try next endpoint
+                    continue
+                
+            except requests.exceptions.RequestException as e:
+                # Try next endpoint
+                continue
+            except json.JSONDecodeError as e:
+                # Try next endpoint
+                continue
         
-        try:
-            response = requests.get(
-                url,
-                headers=self.headers,
-                params=querystring,
-                timeout=Config.REQUEST_TIMEOUT
-            )
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            # Check for API errors or empty response
-            # For item_detail_6, data is in result.item
-            if not data or 'result' not in data:
-                print(f"No data returned for product {product_id}")
-                return None
-            
-            result = data.get('result', {})
-            status = result.get('status', {})
-            
-            # Check if request was successful
-            if status.get('code') != 200 or status.get('data') != 'success':
-                print(f"API error for product {product_id}: {status}")
-                return None
-            
-            return data
-            
-        except requests.exceptions.RequestException as e:
-            print(f"Request failed for product {product_id}: {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                print(f"Response: {e.response.text}")
-            return None
-        except json.JSONDecodeError as e:
-            print(f"Failed to parse response for product {product_id}: {e}")
-            return None
+        # All endpoints failed
+        print(f"All endpoints failed for product {product_id}")
+        return None
     
     def check_availability(self, product_id):
         """
@@ -121,6 +133,12 @@ class AliExpressAPI:
             is_available = False
             reason = 'Product not found'
         else:
+            # First check the direct 'available' field from the API
+            if 'available' in item:
+                is_available = item.get('available', False)
+                if not is_available:
+                    reason = 'Product not available'
+            
             # Check stock availability - try sku.def.quantity first
             sku = item.get('sku', {})
             sku_def = sku.get('def', {})
