@@ -115,7 +115,10 @@ class ProductScraper:
             result = self._process_ebay(url, result)
 
         if result.get('description'):
-            result['description'] = self.gemini_processor.rewrite_description(result['description'])
+            rewritten_description = self.gemini_processor.rewrite_description(result['description'])
+            if rewritten_description != result['description']:
+                rewritten_description = self._ensure_trailing_br(rewritten_description)
+            result['description'] = rewritten_description
         if result.get('title'):
             result['title'] = self.gemini_title_processor.rewrite_description(result['title'])
         
@@ -435,6 +438,7 @@ class ProductScraper:
                 unchanged += 1
                 continue
 
+            rewritten = self._ensure_trailing_br(rewritten)
             updates.append((row_idx, rewritten))
 
         try:
@@ -551,6 +555,17 @@ class ProductScraper:
         print(f"Description updated: {desc_summary.get('updated', 0)}")
 
         return {'title': title_summary, 'description': desc_summary}
+
+    @staticmethod
+    def _ensure_trailing_br(text):
+        """Ensure rewritten description ends with a single trailing <br>."""
+        if not text:
+            return text
+
+        stripped = text.rstrip()
+        if stripped.endswith('<br>'):
+            return stripped
+        return f"{stripped}<br>"
     
     def process_links_list(self, links):
         """
