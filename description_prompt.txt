@@ -1,0 +1,1 @@
+Take this text and extract only description without other unnede stuff

@@ -20,9 +20,11 @@ from gemini_processor import GeminiDescriptionProcessor
 class ProductScraper:
     """Main orchestrator for scraping AliExpress and eBay products"""
     
-    def __init__(self):
+    def __init__(self, description_prompt_file=None, title_prompt_file='title_prompt.txt'):
         execution_folder_name = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         execution_folder = Path(Config.DOWNLOAD_FOLDER) / execution_folder_name
+        selected_description_prompt_file = description_prompt_file or Config.GEMINI_PROMPT_FILE
+        selected_title_prompt_file = title_prompt_file
 
         self.aliexpress_api = AliExpressAPI()
         self.ebay_api = EbayAPI()
@@ -32,19 +34,34 @@ class ProductScraper:
         self.gemini_processor = GeminiDescriptionProcessor(
             api_key=Config.GEMINI_API_KEY,
             model_name=Config.GEMINI_MODEL,
-            prompt_file=Config.GEMINI_PROMPT_FILE,
+            prompt_file=selected_description_prompt_file,
+        )
+        self.gemini_title_processor = GeminiDescriptionProcessor(
+            api_key=Config.GEMINI_API_KEY,
+            model_name=Config.GEMINI_MODEL,
+            prompt_file=selected_title_prompt_file,
         )
 
         print(f"Images for this run will be saved to: {self.execution_folder}")
         if self.gemini_processor.enabled:
             print(
                 f"Gemini description rewrite is enabled "
-                f"(model: {Config.GEMINI_MODEL}, prompt: {Config.GEMINI_PROMPT_FILE})"
+                f"(model: {Config.GEMINI_MODEL}, prompt: {selected_description_prompt_file})"
             )
         else:
             print("Gemini description rewrite is disabled")
             if self.gemini_processor.error:
                 print(f"Reason: {self.gemini_processor.error}")
+
+        if self.gemini_title_processor.enabled:
+            print(
+                f"Gemini title rewrite is enabled "
+                f"(model: {Config.GEMINI_MODEL}, prompt: {selected_title_prompt_file})"
+            )
+        else:
+            print("Gemini title rewrite is disabled")
+            if self.gemini_title_processor.error:
+                print(f"Reason: {self.gemini_title_processor.error}")
     
     def process_single_link(self, url, row_index=None, folder_name=None, flat_image_output=False):
         """
@@ -93,9 +110,14 @@ class ProductScraper:
         
         # Process based on marketplace
         if marketplace == 'aliexpress':
-            return self._process_aliexpress(url, result)
+            result = self._process_aliexpress(url, result)
         elif marketplace == 'ebay':
-            return self._process_ebay(url, result)
+            result = self._process_ebay(url, result)
+
+        if result.get('description'):
+            result['description'] = self.gemini_processor.rewrite_description(result['description'])
+        if result.get('title'):
+            result['title'] = self.gemini_title_processor.rewrite_description(result['title'])
         
         return result
     
@@ -346,8 +368,6 @@ class ProductScraper:
         self.results = []
         for list_index, (sheet_row_idx, link) in enumerate(links_with_rows):
             result = self.process_single_link(link, row_index=list_index, flat_image_output=True)
-            if result.get('description'):
-                result['description'] = self.gemini_processor.rewrite_description(result['description'])
             result['sheet_row_index'] = sheet_row_idx
             self.results.append(result)
 
@@ -429,6 +449,108 @@ class ProductScraper:
         print(f"Unchanged rows skipped: {unchanged}")
 
         return {'processed': len(non_empty_descriptions), 'updated': len(updates)}
+
+    def process_google_sheet_titles(self, sheet_url, source_column='title', target_column='title'):
+        """
+        Rewrite existing title values in a Google Sheet without scraping products.
+
+        Args:
+            sheet_url: Google Sheet URL
+            source_column: Column to read original titles from
+            target_column: Column to write rewritten titles to
+
+        Returns:
+            Dict summary with processed and updated counts
+        """
+        print(f"\n{'='*60}")
+        print("Rewriting Google Sheet titles only")
+        print(f"{sheet_url}")
+        print(f"Source column: {source_column}")
+        print(f"Target column: {target_column}")
+        print(f"{'='*60}\n")
+
+        processor = GoogleSheetProcessor(sheet_url, Config.GOOGLE_SERVICE_ACCOUNT_FILE)
+
+        try:
+            processor.connect()
+            processor.load_sheet()
+        except Exception as e:
+            print(f"Failed to connect/load Google Sheet: {e}")
+            return {'processed': 0, 'updated': 0}
+
+        if not self.gemini_title_processor.enabled:
+            print("Gemini is not enabled. No title rewrite will be performed.")
+            if self.gemini_title_processor.error:
+                print(f"Reason: {self.gemini_title_processor.error}")
+            return {'processed': 0, 'updated': 0}
+
+        try:
+            source_values = processor.get_column_values(source_column)
+        except ValueError as e:
+            print(str(e))
+            return {'processed': 0, 'updated': 0}
+
+        non_empty_titles = [(row_idx, text) for row_idx, text in source_values if text]
+        if not non_empty_titles:
+            print(f"No non-empty titles found in column '{source_column}'")
+            return {'processed': 0, 'updated': 0}
+
+        updates = []
+        unchanged = 0
+        for row_idx, title_text in non_empty_titles:
+            rewritten = self.gemini_title_processor.rewrite_description(title_text)
+
+            if rewritten == title_text:
+                unchanged += 1
+                continue
+
+            updates.append((row_idx, rewritten))
+
+        try:
+            processor.update_column_values(target_column, updates)
+        except Exception as e:
+            print(f"Error updating titles in Google Sheet: {e}")
+            return {'processed': len(non_empty_titles), 'updated': 0}
+
+        print("\nTitle rewrite summary")
+        print(f"Processed titles: {len(non_empty_titles)}")
+        print(f"Updated rows: {len(updates)}")
+        print(f"Unchanged rows skipped: {unchanged}")
+
+        return {'processed': len(non_empty_titles), 'updated': len(updates)}
+
+    def process_google_sheet_titles_and_descriptions(
+        self,
+        sheet_url,
+        title_source_column='title',
+        title_target_column='title_ai',
+        description_source_column='description',
+        description_target_column='description_ai',
+    ):
+        """Rewrite both title and description columns in a Google Sheet."""
+        print(f"\n{'='*60}")
+        print("Rewriting Google Sheet titles and descriptions")
+        print(f"{sheet_url}")
+        print(f"Title: {title_source_column} -> {title_target_column}")
+        print(f"Description: {description_source_column} -> {description_target_column}")
+        print(f"{'='*60}\n")
+
+        title_summary = self.process_google_sheet_titles(
+            sheet_url,
+            source_column=title_source_column,
+            target_column=title_target_column,
+        )
+        desc_summary = self.process_google_sheet_descriptions(
+            sheet_url,
+            source_column=description_source_column,
+            target_column=description_target_column,
+        )
+
+        print("\nCombined rewrite summary")
+        print(f"Title updated: {title_summary.get('updated', 0)}")
+        print(f"Description updated: {desc_summary.get('updated', 0)}")
+
+        return {'title': title_summary, 'description': desc_summary}
     
     def process_links_list(self, links):
         """
@@ -482,6 +604,8 @@ def main():
     """Main entry point"""
     print("AliExpress & eBay Product Scraper")
     print("=" * 60)
+    default_description_prompt_file = 'description_prompt.txt'
+    default_title_prompt_file = 'title_prompt.txt'
 
     # Check command line arguments
     if len(sys.argv) > 1:
@@ -496,12 +620,58 @@ def main():
 
             source_column = sys.argv[2] if len(sys.argv) > 2 else 'description'
             target_column = sys.argv[3] if len(sys.argv) > 3 else source_column
-
-            scraper = ProductScraper()
+            scraper = ProductScraper(
+                description_prompt_file=default_description_prompt_file,
+                title_prompt_file=default_title_prompt_file,
+            )
             scraper.process_google_sheet_descriptions(
                 Config.GOOGLE_SHEET_URL,
                 source_column=source_column,
                 target_column=target_column,
+            )
+            return
+
+        if input_path.lower() in ('sheet-title', 'title', 'title-only'):
+            try:
+                Config.validate_google_sheets()
+            except ValueError as e:
+                print(f"\n❌ Google Sheets Configuration Error: {e}")
+                return
+
+            source_column = sys.argv[2] if len(sys.argv) > 2 else 'title'
+            target_column = sys.argv[3] if len(sys.argv) > 3 else 'title_ai'
+            scraper = ProductScraper(
+                description_prompt_file=default_description_prompt_file,
+                title_prompt_file=default_title_prompt_file,
+            )
+            scraper.process_google_sheet_titles(
+                Config.GOOGLE_SHEET_URL,
+                source_column=source_column,
+                target_column=target_column,
+            )
+            return
+
+        if input_path.lower() in ('sheet-title-desc', 'sheet-both', 'both'):
+            try:
+                Config.validate_google_sheets()
+            except ValueError as e:
+                print(f"\n❌ Google Sheets Configuration Error: {e}")
+                return
+
+            title_source = sys.argv[2] if len(sys.argv) > 2 else 'title'
+            title_target = sys.argv[3] if len(sys.argv) > 3 else 'title_ai'
+            desc_source = sys.argv[4] if len(sys.argv) > 4 else 'description'
+            desc_target = sys.argv[5] if len(sys.argv) > 5 else 'description_ai'
+            scraper = ProductScraper(
+                description_prompt_file=default_description_prompt_file,
+                title_prompt_file=default_title_prompt_file,
+            )
+            scraper.process_google_sheet_titles_and_descriptions(
+                Config.GOOGLE_SHEET_URL,
+                title_source_column=title_source,
+                title_target_column=title_target,
+                description_source_column=desc_source,
+                description_target_column=desc_target,
             )
             return
 
@@ -513,7 +683,10 @@ def main():
             print("\nPlease check your .env file and ensure all credentials are set.")
             return
 
-        scraper = ProductScraper()
+        scraper = ProductScraper(
+            description_prompt_file=default_description_prompt_file,
+            title_prompt_file=default_title_prompt_file,
+        )
         
         # Check if it's a file
         if Path(input_path).is_file():
@@ -530,8 +703,10 @@ def main():
             scraper.process_single_link(input_path)
         else:
             print(f"Invalid input: {input_path}")
-            print("Usage: python main.py <file.xlsx|file.csv|product_url|sheet|sheet-desc>")
+            print("Usage: python main.py <file.xlsx|file.csv|product_url|sheet|sheet-desc|sheet-title|sheet-title-desc>")
             print("Description-only usage: python main.py sheet-desc [source_column] [target_column]")
+            print("Title-only usage: python main.py sheet-title [source_column] [target_column]")
+            print("Title+description usage: python main.py sheet-title-desc [title_source] [title_target] [description_source] [description_target]")
     else:
         # Default mode: process configured Google Sheet
         try:
@@ -548,7 +723,10 @@ def main():
             print("\nPlease check your .env file and ensure all credentials are set.")
             return
 
-        scraper = ProductScraper()
+        scraper = ProductScraper(
+            description_prompt_file=default_description_prompt_file,
+            title_prompt_file=default_title_prompt_file,
+        )
         scraper.process_google_sheet(Config.GOOGLE_SHEET_URL)
 
 
