@@ -37,9 +37,17 @@ class ImageDownloader:
         Returns:
             Path to the created folder
         """
-        folder_path = Path(self.base_folder) / str(product_id)
+        folder_path = Path(self.base_folder) / self._sanitize_filename(str(product_id))
         folder_path.mkdir(parents=True, exist_ok=True)
         return folder_path
+
+    def _build_image_filename(self, image_index, product_id=None, filename_prefix=None, flat_output=False):
+        """Build a safe filename for a downloaded image."""
+        if flat_output:
+            base_name = filename_prefix if filename_prefix is not None else product_id
+            return f"{self._sanitize_filename(str(base_name))}_{image_index}.jpg"
+
+        return f"{self._sanitize_filename(str(product_id))}_image_{image_index}.jpg"
     
     def download_image(self, url, save_path, timeout=30):
         """
@@ -81,7 +89,7 @@ class ImageDownloader:
             print(f"Error processing image {url}: {e}")
             return False
     
-    def download_product_images(self, product_id, image_urls, custom_folder_name=None):
+    def download_product_images(self, product_id, image_urls, custom_folder_name=None, filename_prefix=None, flat_output=False):
         """
         Download all images for a product
         
@@ -89,6 +97,8 @@ class ImageDownloader:
             product_id: Product ID
             image_urls: List of image URLs
             custom_folder_name: Optional custom folder name (e.g., row number)
+            filename_prefix: Optional filename prefix for flat output mode
+            flat_output: If True, save images directly in base folder
             
         Returns:
             Dictionary with download statistics
@@ -103,17 +113,23 @@ class ImageDownloader:
                 'folder': None
             }
         
-        # Use custom folder name if provided, otherwise use product_id
-        folder_name = custom_folder_name if custom_folder_name is not None else product_id
-        product_folder = Path(self.base_folder) / str(folder_name)
-        product_folder.mkdir(parents=True, exist_ok=True)
+        if flat_output:
+            product_folder = Path(self.base_folder)
+        else:
+            folder_name = custom_folder_name if custom_folder_name is not None else product_id
+            product_folder = Path(self.base_folder) / self._sanitize_filename(str(folder_name))
+            product_folder.mkdir(parents=True, exist_ok=True)
         
         downloaded = 0
         failed = 0
         
         for idx, url in enumerate(image_urls, start=1):
-            # Generate filename using product_id (not folder name)
-            filename = f"{product_id}_image_{idx}.jpg"
+            filename = self._build_image_filename(
+                image_index=idx,
+                product_id=product_id,
+                filename_prefix=filename_prefix,
+                flat_output=flat_output
+            )
             save_path = product_folder / filename
             
             # Skip if already exists

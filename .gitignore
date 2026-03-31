@@ -1,5 +1,6 @@
 # Environment variables
 .env
+service_account.json
 
 # Python
 __pycache__/

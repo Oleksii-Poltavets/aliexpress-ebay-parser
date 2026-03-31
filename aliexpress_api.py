@@ -250,6 +250,34 @@ class AliExpressAPI:
         item = result.get('item', {})
         
         return item.get('title') or item.get('subject') or 'N/A'
+
+    def get_seller_name(self, product_id):
+        """
+        Get seller/store name
+
+        Args:
+            product_id: AliExpress product ID
+
+        Returns:
+            Seller name string or None
+        """
+        product_data = self.get_product_details(product_id)
+
+        if not product_data:
+            return None
+
+        result = product_data.get('result', {})
+        seller = result.get('seller', {})
+        item = result.get('item', {})
+
+        return (
+            seller.get('storeTitle') or
+            seller.get('storeName') or
+            seller.get('companyName') or
+            item.get('storeName') or
+            item.get('sellerName') or
+            'N/A'
+        )
     
     def get_product_price(self, product_id):
         """
@@ -338,14 +366,14 @@ class AliExpressAPI:
                     item.get('sku_max_price')
                 )
         
-        # Format price string
+        # Format price string without currency symbols/codes
         if min_price is not None and max_price is not None:
             if min_price == max_price:
-                formatted = f"{currency} {min_price}"
+                formatted = str(min_price)
             else:
-                formatted = f"{currency} {min_price} - {max_price}"
+                formatted = f"{min_price} - {max_price}"
         elif min_price is not None:
-            formatted = f"{currency} {min_price}"
+            formatted = str(min_price)
         else:
             formatted = 'N/A'
         

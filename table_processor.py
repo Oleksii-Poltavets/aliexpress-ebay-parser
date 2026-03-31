@@ -163,6 +163,8 @@ class TableProcessor:
             self.df['row_number'] = None
         if 'product_id' not in self.df.columns:
             self.df['product_id'] = None
+        if 'seller_name' not in self.df.columns:
+            self.df['seller_name'] = None
         if 'title' not in self.df.columns:
             self.df['title'] = None
         if 'description' not in self.df.columns:
@@ -184,6 +186,7 @@ class TableProcessor:
             if idx is not None and idx < len(self.df):
                 self.df.at[idx, 'row_number'] = result.get('row_number')
                 self.df.at[idx, 'product_id'] = result.get('product_id')
+                self.df.at[idx, 'seller_name'] = result.get('seller_name')
                 self.df.at[idx, 'title'] = result.get('title')
                 self.df.at[idx, 'description'] = result.get('description')
                 self.df.at[idx, 'price'] = result.get('price')

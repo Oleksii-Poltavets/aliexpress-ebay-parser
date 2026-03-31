@@ -29,6 +29,18 @@ class Config:
     # Download settings
     DOWNLOAD_FOLDER = 'downloads'
     IMAGE_QUALITY = 95
+
+    # Google Sheets settings
+    GOOGLE_SHEET_URL = os.getenv(
+        'GOOGLE_SHEET_URL',
+        'https://docs.google.com/spreadsheets/d/1CcEmBFjluUtm18JuIzBJTzrHAWoocA7gMsbr_fEjrp8/edit?gid=1636327865#gid=1636327865'
+    )
+    GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv('GOOGLE_SERVICE_ACCOUNT_FILE', 'service_account.json')
+
+    # Gemini settings (optional, used for description rewriting)
+    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+    GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-1.5-flash')
+    GEMINI_PROMPT_FILE = os.getenv('GEMINI_PROMPT_FILE', 'title_prompt.txt')
     
     # Timeout settings
     REQUEST_TIMEOUT = 30
@@ -48,4 +60,18 @@ class Config:
                 "Get your credentials from https://developer.ebay.com/"
             )
         
+        return True
+
+    @classmethod
+    def validate_google_sheets(cls):
+        """Validate that Google Sheets credentials configuration is present"""
+        if not cls.GOOGLE_SHEET_URL:
+            raise ValueError("Missing GOOGLE_SHEET_URL in .env file")
+
+        if not os.path.exists(cls.GOOGLE_SERVICE_ACCOUNT_FILE):
+            raise ValueError(
+                "Google service account file not found. "
+                "Set GOOGLE_SERVICE_ACCOUNT_FILE in .env and provide the JSON key file."
+            )
+
         return True

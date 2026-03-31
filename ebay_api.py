@@ -302,6 +302,31 @@ class EbayAPI:
             return None
         
         return product_data.get('title', 'Unknown Product')
+
+    def get_seller_name(self, item_id):
+        """
+        Get seller name
+
+        Args:
+            item_id: eBay item ID
+
+        Returns:
+            Seller name string or None
+        """
+        product_data = self.get_product_details(item_id)
+
+        if not product_data:
+            return None
+
+        seller = product_data.get('seller', {})
+        seller_legal_info = seller.get('sellerLegalInfo', {})
+
+        return (
+            seller_legal_info.get('name') or
+            seller.get('username') or
+            seller.get('userId') or
+            'N/A'
+        )
     
     def get_product_price(self, item_id):
         """
@@ -330,7 +355,7 @@ class EbayAPI:
             value = price_obj.get('value')
             
             if value is not None:
-                formatted = f"{currency} {value}"
+                formatted = str(value)
             else:
                 formatted = 'N/A'
         else:
