@@ -368,6 +368,22 @@ class EbayAPI:
             'value': value,
             'formatted': formatted
         }
+
+    def get_shipping_price(self, item_id):
+        """Get the first available shipping cost from eBay item details."""
+        product_data = self.get_product_details(item_id)
+
+        if not product_data:
+            return ''
+
+        shipping_options = product_data.get('shippingOptions') or []
+        for option in shipping_options:
+            shipping_cost = option.get('shippingCost', {})
+            value = shipping_cost.get('value')
+            if value not in (None, ''):
+                return str(value)
+
+        return ''
     
     def get_product_description(self, item_id):
         """

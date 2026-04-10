@@ -1,4 +1,4 @@
-"""
+﻿"""
 Table processor for handling Excel/CSV files with AliExpress product links
 """
 import pandas as pd
@@ -7,6 +7,30 @@ from pathlib import Path
 
 class TableProcessor:
     """Process Excel/CSV files containing AliExpress product links"""
+
+    RESULT_COLUMNS = [
+        'LotNum',
+        'Link',
+        'Status',
+        'ImagesDownloaded',
+        'DownloadFolder',
+        'title',
+        'description',
+        'price',
+        'shipping_price',
+        'seller_nick',
+        'rewritten_title',
+        'rewritten_description',
+    ]
+
+    @staticmethod
+    def _availability_display(value):
+        """Normalize availability to a user-friendly string for sheet/table columns."""
+        if value is True:
+            return 'Available'
+        if value is False:
+            return 'Unavailable'
+        return None
     
     def __init__(self, file_path):
         self.file_path = file_path
@@ -158,42 +182,34 @@ class TableProcessor:
         if self.df is None:
             return
         
-        # Initialize new columns if they don't exist
-        if 'row_number' not in self.df.columns:
-            self.df['row_number'] = None
-        if 'product_id' not in self.df.columns:
-            self.df['product_id'] = None
-        if 'seller_name' not in self.df.columns:
-            self.df['seller_name'] = None
-        if 'title' not in self.df.columns:
-            self.df['title'] = None
-        if 'description' not in self.df.columns:
-            self.df['description'] = None
-        if 'price' not in self.df.columns:
-            self.df['price'] = None
-        if 'availability' not in self.df.columns:
-            self.df['availability'] = None
-        if 'stock_quantity' not in self.df.columns:
-            self.df['stock_quantity'] = None
-        if 'images_downloaded' not in self.df.columns:
-            self.df['images_downloaded'] = None
-        if 'download_folder' not in self.df.columns:
-            self.df['download_folder'] = None
+        for column_name in self.RESULT_COLUMNS:
+            if column_name not in self.df.columns:
+                self.df[column_name] = None
         
         # Update rows with results
         for result in results:
             idx = result.get('row_index')
             if idx is not None and idx < len(self.df):
-                self.df.at[idx, 'row_number'] = result.get('row_number')
-                self.df.at[idx, 'product_id'] = result.get('product_id')
-                self.df.at[idx, 'seller_name'] = result.get('seller_name')
+                self.df.at[idx, 'LotNum'] = result.get('row_number')
+                self.df.at[idx, 'Link'] = result.get('url')
+                self.df.at[idx, 'Status'] = result.get('status')
+                if result.get('images_downloaded') is not None:
+                    self.df.at[idx, 'ImagesDownloaded'] = result.get('images_downloaded')
+                if result.get('folder') is not None:
+                    self.df.at[idx, 'DownloadFolder'] = result.get('folder')
                 self.df.at[idx, 'title'] = result.get('title')
                 self.df.at[idx, 'description'] = result.get('description')
                 self.df.at[idx, 'price'] = result.get('price')
-                self.df.at[idx, 'availability'] = result.get('available')
-                self.df.at[idx, 'stock_quantity'] = result.get('stock_quantity')
-                self.df.at[idx, 'images_downloaded'] = result.get('images_downloaded')
-                self.df.at[idx, 'download_folder'] = result.get('folder')
+                self.df.at[idx, 'shipping_price'] = result.get('shipping_price')
+                self.df.at[idx, 'seller_nick'] = result.get('seller_name')
+                self.df.at[idx, 'rewritten_title'] = result.get('rewritten_title')
+                self.df.at[idx, 'rewritten_description'] = result.get('rewritten_description')
+
+                availability_value = self._availability_display(result.get('available'))
+                if 'availability' in self.df.columns and availability_value is not None:
+                    self.df.at[idx, 'availability'] = availability_value
+                if 'Avalibility' in self.df.columns and availability_value is not None:
+                    self.df.at[idx, 'Avalibility'] = availability_value
     
     def save_results(self, output_path=None):
         """
@@ -224,3 +240,4 @@ class TableProcessor:
         except Exception as e:
             print(f"Error saving results: {e}")
             return False
+

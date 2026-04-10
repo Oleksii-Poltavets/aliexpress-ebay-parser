@@ -1,4 +1,4 @@
-"""
+﻿"""
 Google Sheets processor for loading product links and writing scraping results.
 """
 from urllib.parse import urlparse, parse_qs
@@ -10,17 +10,28 @@ class GoogleSheetProcessor:
     """Process Google Sheets containing product links and update result columns."""
 
     RESULT_COLUMNS = [
-        'row_number',
-        'product_id',
-        'seller_name',
+        'LotNum',
+        'Link',
+        'Status',
+        'ImagesDownloaded',
+        'DownloadFolder',
         'title',
         'description',
         'price',
-        'availability',
-        'stock_quantity',
-        'images_downloaded',
-        'download_folder',
+        'shipping_price',
+        'seller_nick',
+        'rewritten_title',
+        'rewritten_description',
     ]
+
+    @staticmethod
+    def _availability_display(value):
+        """Normalize availability to a user-friendly string for existing sheet columns."""
+        if value is True:
+            return 'Available'
+        if value is False:
+            return 'Unavailable'
+        return None
 
     def __init__(self, sheet_url, service_account_file):
         self.sheet_url = sheet_url
@@ -218,17 +229,29 @@ class GoogleSheetProcessor:
             # +2 because sheet row 1 is header and data starts at row 2.
             target_row = sheet_row_idx + 2
             updates = {
-                'row_number': result.get('row_number', ''),
-                'product_id': result.get('product_id', ''),
-                'seller_name': result.get('seller_name', ''),
+                'LotNum': result.get('row_number', ''),
+                'Link': result.get('url', ''),
+                'Status': result.get('status', ''),
                 'title': result.get('title', ''),
                 'description': result.get('description', ''),
                 'price': result.get('price', ''),
-                'availability': result.get('available', ''),
-                'stock_quantity': result.get('stock_quantity', ''),
-                'images_downloaded': result.get('images_downloaded', ''),
-                'download_folder': result.get('folder', ''),
+                'shipping_price': result.get('shipping_price', ''),
+                'seller_nick': result.get('seller_name', ''),
+                'rewritten_title': result.get('rewritten_title', ''),
+                'rewritten_description': result.get('rewritten_description', ''),
             }
+
+            availability_value = self._availability_display(result.get('available'))
+            if availability_value is not None:
+                if 'availability' in self.headers:
+                    updates['availability'] = availability_value
+                if 'Avalibility' in self.headers:
+                    updates['Avalibility'] = availability_value
+
+            if result.get('images_downloaded') is not None:
+                updates['ImagesDownloaded'] = result.get('images_downloaded', '')
+            if result.get('folder') is not None:
+                updates['DownloadFolder'] = result.get('folder', '')
 
             batch_requests = []
             for col_name, value in updates.items():
@@ -242,3 +265,4 @@ class GoogleSheetProcessor:
 
         print(f"Uploaded results for {len(results)} rows to Google Sheet")
         return True
+

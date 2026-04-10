@@ -45,8 +45,8 @@ class AliExpressAPI:
         """
         self._rate_limit()
         
-        # Try multiple endpoints in order of preference
-        endpoints = ['item_detail_3', 'item_detail_2', 'item_detail_6']
+        # Prefer endpoint 6 first because it most consistently includes description payloads.
+        endpoints = ['item_detail_6', 'item_detail_2', 'item_detail_3']
         
         for endpoint in endpoints:
             url = f"https://aliexpress-datahub.p.rapidapi.com/{endpoint}"
@@ -100,7 +100,7 @@ class AliExpressAPI:
         print(f"All endpoints failed for product {product_id}")
         return None
     
-    def check_availability(self, product_id):
+    def check_availability(self, product_id, product_data=None):
         """
         Check if product is available for purchase
         
@@ -110,7 +110,8 @@ class AliExpressAPI:
         Returns:
             Dictionary with availability status and stock info
         """
-        product_data = self.get_product_details(product_id)
+        if product_data is None:
+            product_data = self.get_product_details(product_id)
         
         if not product_data:
             return {
@@ -172,7 +173,7 @@ class AliExpressAPI:
             'product_title': item.get('title', 'N/A') if item else 'N/A'
         }
     
-    def get_product_images(self, product_id):
+    def get_product_images(self, product_id, product_data=None):
         """
         Get list of product image URLs
         
@@ -182,7 +183,8 @@ class AliExpressAPI:
         Returns:
             List of image URLs
         """
-        product_data = self.get_product_details(product_id)
+        if product_data is None:
+            product_data = self.get_product_details(product_id)
         
         if not product_data:
             return []
@@ -231,7 +233,7 @@ class AliExpressAPI:
         
         return unique_images
     
-    def get_product_title(self, product_id):
+    def get_product_title(self, product_id, product_data=None):
         """
         Get product title
         
@@ -241,7 +243,8 @@ class AliExpressAPI:
         Returns:
             Product title string or None
         """
-        product_data = self.get_product_details(product_id)
+        if product_data is None:
+            product_data = self.get_product_details(product_id)
         
         if not product_data:
             return None
@@ -251,7 +254,7 @@ class AliExpressAPI:
         
         return item.get('title') or item.get('subject') or 'N/A'
 
-    def get_seller_name(self, product_id):
+    def get_seller_name(self, product_id, product_data=None):
         """
         Get seller/store name
 
@@ -261,7 +264,8 @@ class AliExpressAPI:
         Returns:
             Seller name string or None
         """
-        product_data = self.get_product_details(product_id)
+        if product_data is None:
+            product_data = self.get_product_details(product_id)
 
         if not product_data:
             return None
@@ -279,7 +283,7 @@ class AliExpressAPI:
             'N/A'
         )
     
-    def get_product_price(self, product_id):
+    def get_product_price(self, product_id, product_data=None):
         """
         Get product price information
         
@@ -289,7 +293,8 @@ class AliExpressAPI:
         Returns:
             Dictionary with price information (currency, min_price, max_price, formatted)
         """
-        product_data = self.get_product_details(product_id)
+        if product_data is None:
+            product_data = self.get_product_details(product_id)
         
         if not product_data:
             return {
@@ -383,8 +388,36 @@ class AliExpressAPI:
             'max_price': max_price,
             'formatted': formatted
         }
+
+    def get_shipping_price(self, product_id, product_data=None):
+        """Get the cheapest available shipping fee for a product."""
+        if product_data is None:
+            product_data = self.get_product_details(product_id)
+
+        if not product_data:
+            return ''
+
+        result = product_data.get('result', {})
+        delivery = result.get('delivery', {})
+        shipping_list = delivery.get('shippingList') or []
+
+        fees = []
+        for option in shipping_list:
+            fee = option.get('shippingFee')
+            if fee in (None, ''):
+                continue
+            try:
+                fees.append(float(fee))
+            except (TypeError, ValueError):
+                continue
+
+        if not fees:
+            return ''
+
+        cheapest_fee = min(fees)
+        return str(int(cheapest_fee)) if cheapest_fee.is_integer() else str(cheapest_fee)
     
-    def get_product_description(self, product_id):
+    def get_product_description(self, product_id, product_data=None):
         """
         Get full product description from seller
         
@@ -394,7 +427,8 @@ class AliExpressAPI:
         Returns:
             Product description string or None
         """
-        product_data = self.get_product_details(product_id)
+        if product_data is None:
+            product_data = self.get_product_details(product_id)
         
         if not product_data:
             return None
@@ -409,10 +443,13 @@ class AliExpressAPI:
             item.get('detail') or
             item.get('descriptionUrl')  # Sometimes only URL is provided
         )
+
+        raw_html_description = None
         
         # Handle if description is a dictionary
         if isinstance(description, dict):
             # Try to get HTML description first, then other common fields
+            raw_html_description = description.get('html')
             description = (
                 description.get('html') or
                 description.get('text') or 
@@ -422,9 +459,17 @@ class AliExpressAPI:
             )
         
         if description and isinstance(description, str):
+            original_description = description
             # Strip HTML tags
             description = re.sub(r'<[^>]+>', '', description)
             # Clean up extra whitespace and newlines
             description = re.sub(r'\s+', ' ', description).strip()
+
+            # Some products provide description only as rich HTML/images with no plain text.
+            if not description:
+                if raw_html_description and isinstance(raw_html_description, str):
+                    return raw_html_description.strip() or 'N/A'
+                if '<' in original_description and '>' in original_description:
+                    return original_description.strip() or 'N/A'
         
         return description or 'N/A'
