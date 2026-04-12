@@ -941,8 +941,11 @@ class ProductScraper:
         available = sum(1 for r in self.results if r.get('available') is True)
         unavailable = sum(1 for r in self.results if r.get('available') is False)
         unknown = sum(1 for r in self.results if r.get('available') is None)
-        errors = sum(1 for r in self.results if r['error'])
-        total_images = sum(r['images_downloaded'] for r in self.results)
+        errors = sum(1 for r in self.results if r.get('error'))
+        total_images = sum(
+            value if isinstance(value, (int, float)) else 0
+            for value in (r.get('images_downloaded') for r in self.results)
+        )
         
         # Count by marketplace
         aliexpress_count = sum(1 for r in self.results if r.get('marketplace') == 'aliexpress')
