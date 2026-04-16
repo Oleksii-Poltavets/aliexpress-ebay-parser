@@ -68,6 +68,7 @@ class ProductScraper:
         self,
         url,
         row_index=None,
+        lotnum=None,
         folder_name=None,
         flat_image_output=False,
         images_only=False,
@@ -94,7 +95,8 @@ class ProductScraper:
         result = {
             'url': url,
             'row_index': row_index,
-            'row_number': row_index + 1 if row_index is not None else None,
+            'row_number': lotnum if lotnum not in (None, '') else (row_index + 1 if row_index is not None else None),
+            'lotnum': lotnum,
             'folder_name': folder_name,
             'flat_image_output': flat_image_output,
             'marketplace': None,
@@ -285,6 +287,11 @@ class ProductScraper:
                 print(f"  Stock: {availability['stock_quantity']} units")
         else:
             print(f"âœ— Not available: {availability['reason']}")
+
+        if availability['available'] is False:
+            print("\nSkipping image download because product is unavailable")
+            result['images_downloaded'] = 0
+            return result
         
         if skip_images:
             print("\nSkipping image download")
@@ -333,6 +340,17 @@ class ProductScraper:
             return result
 
         print("\nFetching product images only...")
+        availability = self.aliexpress_api.check_availability(product_id, product_data=product_data)
+        result['available'] = availability['available']
+        result['stock_quantity'] = availability.get('stock_quantity')
+
+        if availability['available'] is False:
+            print(f"âœ— Not available: {availability['reason']}")
+            print("Skipping image download because product is unavailable")
+            result['images_downloaded'] = 0
+            result['status'] = 'Unavailable - images skipped'
+            return result
+
         image_urls = self.aliexpress_api.get_product_images(product_id, product_data=product_data)
 
         if image_urls:
@@ -367,23 +385,29 @@ class ProductScraper:
         
         result['product_id'] = item_id
         print(f"Item ID: {item_id}")
+
+        product_data = self.ebay_api.get_product_details(item_id)
+        if not product_data:
+            result['error'] = 'Failed to fetch product data from eBay API'
+            print(f"❌ {result['error']}")
+            return result
         
         # Get product details (title, description, price)
         print("\nFetching product details...")
-        seller_name = self.ebay_api.get_seller_name(item_id)
-        price_info = self.ebay_api.get_product_price(item_id)
+        seller_name = self.ebay_api.get_seller_name(item_id, product_data=product_data)
+        price_info = self.ebay_api.get_product_price(item_id, product_data=product_data)
 
         title = None
         description = None
         if not skip_text_fields:
-            title = self.ebay_api.get_product_title(item_id)
-            description = self.ebay_api.get_product_description(item_id)
+            title = self.ebay_api.get_product_title(item_id, product_data=product_data)
+            description = self.ebay_api.get_product_description(item_id, product_data=product_data)
         
         result['title'] = title
         result['seller_name'] = seller_name
         result['description'] = description
         result['price'] = price_info.get('formatted', 'N/A')
-        result['shipping_price'] = self.ebay_api.get_shipping_price(item_id)
+        result['shipping_price'] = self.ebay_api.get_shipping_price(item_id, product_data=product_data)
         
         if title:
             print(f"Title: {title}")
@@ -391,10 +415,12 @@ class ProductScraper:
             print(f"Seller: {seller_name}")
         if price_info.get('formatted'):
             print(f"Price: {price_info['formatted']}")
+        if result.get('shipping_price') not in (None, ''):
+            print(f"Shipping price: {result['shipping_price']}")
         
         # Check availability
         print("\nChecking availability...")
-        is_available, quantity, reason = self.ebay_api.check_availability(item_id)
+        is_available, quantity, reason = self.ebay_api.check_availability(item_id, product_data=product_data)
         
         result['available'] = is_available
         result['stock_quantity'] = quantity
@@ -405,6 +431,11 @@ class ProductScraper:
                 print(f"  Stock: {quantity} units")
         else:
             print(f"âœ— Not available: {reason}")
+
+        if is_available is False:
+            print("\nSkipping image download because product is unavailable")
+            result['images_downloaded'] = 0
+            return result
         
         if skip_images:
             print("\nSkipping image download")
@@ -414,7 +445,7 @@ class ProductScraper:
 
         # Get and download images
         print("\nFetching product images...")
-        image_urls = self.ebay_api.get_product_images(item_id)
+        image_urls = self.ebay_api.get_product_images(item_id, product_data=product_data)
 
         if image_urls:
             print(f"Found {len(image_urls)} images")
@@ -446,8 +477,25 @@ class ProductScraper:
         result['product_id'] = item_id
         print(f"Item ID: {item_id}")
 
+        product_data = self.ebay_api.get_product_details(item_id)
+        if not product_data:
+            result['error'] = 'Failed to fetch product data from eBay API'
+            print(f"❌ {result['error']}")
+            return result
+
         print("\nFetching product images only...")
-        image_urls = self.ebay_api.get_product_images(item_id)
+        is_available, quantity, reason = self.ebay_api.check_availability(item_id, product_data=product_data)
+        result['available'] = is_available
+        result['stock_quantity'] = quantity
+
+        if is_available is False:
+            print(f"âœ— Not available: {reason}")
+            print("Skipping image download because product is unavailable")
+            result['images_downloaded'] = 0
+            result['status'] = 'Unavailable - images skipped'
+            return result
+
+        image_urls = self.ebay_api.get_product_images(item_id, product_data=product_data)
 
         if image_urls:
             print(f"Found {len(image_urls)} images")
@@ -518,20 +566,40 @@ class ProductScraper:
                 print("Invalid column name. Exiting.")
                 return []
         
-        # Get all links
-        links = processor.get_product_links()
-        print(f"\nFound {len(links)} product links to process\n")
-        
-        if not links:
+        lotnum_column = 'LotNum' if 'LotNum' in processor.df.columns else next(
+            (col for col in processor.df.columns if str(col).strip().lower() == 'lotnum'),
+            None,
+        )
+
+        rows_to_process = []
+        for row_idx, row in processor.df.iterrows():
+            raw_link = row.get(processor.link_column)
+            if raw_link is None:
+                continue
+
+            link = str(raw_link).strip()
+            if not link:
+                continue
+
+            lotnum_value = row.get(lotnum_column) if lotnum_column else None
+            if lotnum_value is not None and str(lotnum_value).strip() == '':
+                lotnum_value = None
+
+            rows_to_process.append((row_idx, link, lotnum_value))
+
+        print(f"\nFound {len(rows_to_process)} product links to process\n")
+
+        if not rows_to_process:
             print("No links found in table")
             return []
         
         # Process each link
         self.results = []
-        for idx, link in enumerate(links):
+        for row_idx, link, lotnum_value in rows_to_process:
             result = self.process_single_link(
                 link,
-                row_index=idx,
+                row_index=row_idx,
+                lotnum=lotnum_value,
                 flat_image_output=True,
                 images_only=images_only,
                 skip_images=skip_images,
@@ -605,11 +673,29 @@ class ProductScraper:
             print("No links found in sheet")
             return []
 
+        lotnum_col_idx = (
+            processor.headers.index('LotNum')
+            if 'LotNum' in processor.headers
+            else next(
+                (idx for idx, col_name in enumerate(processor.headers) if str(col_name).strip().lower() == 'lotnum'),
+                None,
+            )
+        )
+
         self.results = []
-        for list_index, (sheet_row_idx, link) in enumerate(links_with_rows):
+        for sheet_row_idx, link in links_with_rows:
+            lotnum_value = None
+            if lotnum_col_idx is not None and sheet_row_idx < len(processor.rows):
+                row_values = processor.rows[sheet_row_idx]
+                if lotnum_col_idx < len(row_values):
+                    lotnum_value = str(row_values[lotnum_col_idx]).strip()
+                    if lotnum_value == '':
+                        lotnum_value = None
+
             result = self.process_single_link(
                 link,
-                row_index=list_index,
+                row_index=sheet_row_idx,
+                lotnum=lotnum_value,
                 flat_image_output=True,
                 images_only=images_only,
                 skip_images=skip_images,

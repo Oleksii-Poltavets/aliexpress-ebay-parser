@@ -403,7 +403,18 @@ class AliExpressAPI:
 
         fees = []
         for option in shipping_list:
-            fee = option.get('shippingFee')
+            for key in ('shippingFee', 'shippingPrice', 'cost', 'fee'):
+                fee = option.get(key)
+                if fee in (None, ''):
+                    continue
+                try:
+                    fees.append(float(fee))
+                except (TypeError, ValueError):
+                    continue
+
+        # Fallbacks for responses where shipping options are summarized differently.
+        for key in ('shippingFee', 'shippingPrice', 'minShippingFee'):
+            fee = delivery.get(key)
             if fee in (None, ''):
                 continue
             try:

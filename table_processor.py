@@ -190,7 +190,11 @@ class TableProcessor:
         for result in results:
             idx = result.get('row_index')
             if idx is not None and idx < len(self.df):
-                self.df.at[idx, 'LotNum'] = result.get('row_number')
+                explicit_lotnum = result.get('lotnum')
+                if explicit_lotnum not in (None, ''):
+                    self.df.at[idx, 'LotNum'] = explicit_lotnum
+                elif pd.isna(self.df.at[idx, 'LotNum']) or str(self.df.at[idx, 'LotNum']).strip() == '':
+                    self.df.at[idx, 'LotNum'] = result.get('row_number')
                 self.df.at[idx, 'Link'] = result.get('url')
                 self.df.at[idx, 'Status'] = result.get('status')
                 if result.get('images_downloaded') is not None:

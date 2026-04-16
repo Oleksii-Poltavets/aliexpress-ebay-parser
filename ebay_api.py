@@ -209,7 +209,7 @@ class EbayAPI:
             logger.error(f"Request failed for item group {item_group_id}: {e}")
             return None
     
-    def check_availability(self, item_id):
+    def check_availability(self, item_id, product_data=None):
         """
         Check if a product is available for purchase
         
@@ -219,7 +219,8 @@ class EbayAPI:
         Returns:
             Tuple of (is_available: bool, quantity: int, reason: str)
         """
-        product_data = self.get_product_details(item_id)
+        if product_data is None:
+            product_data = self.get_product_details(item_id)
         
         if not product_data:
             return False, 0, "Failed to fetch product data"
@@ -252,7 +253,7 @@ class EbayAPI:
         else:
             return False, 0, "Out of stock"
     
-    def get_product_images(self, item_id):
+    def get_product_images(self, item_id, product_data=None):
         """
         Get product image URLs
         
@@ -262,7 +263,8 @@ class EbayAPI:
         Returns:
             List of image URLs
         """
-        product_data = self.get_product_details(item_id)
+        if product_data is None:
+            product_data = self.get_product_details(item_id)
         
         if not product_data:
             logger.warning(f"No product data found for {item_id}")
@@ -286,7 +288,7 @@ class EbayAPI:
         logger.info(f"Found {len(images)} images for eBay product {item_id}")
         return images
     
-    def get_product_title(self, item_id):
+    def get_product_title(self, item_id, product_data=None):
         """
         Get product title
         
@@ -296,14 +298,15 @@ class EbayAPI:
         Returns:
             Product title string or None
         """
-        product_data = self.get_product_details(item_id)
+        if product_data is None:
+            product_data = self.get_product_details(item_id)
         
         if not product_data:
             return None
         
         return product_data.get('title', 'Unknown Product')
 
-    def get_seller_name(self, item_id):
+    def get_seller_name(self, item_id, product_data=None):
         """
         Get seller name
 
@@ -313,7 +316,8 @@ class EbayAPI:
         Returns:
             Seller name string or None
         """
-        product_data = self.get_product_details(item_id)
+        if product_data is None:
+            product_data = self.get_product_details(item_id)
 
         if not product_data:
             return None
@@ -328,7 +332,7 @@ class EbayAPI:
             'N/A'
         )
     
-    def get_product_price(self, item_id):
+    def get_product_price(self, item_id, product_data=None):
         """
         Get product price information
         
@@ -338,7 +342,8 @@ class EbayAPI:
         Returns:
             Dictionary with price information (currency, value, formatted)
         """
-        product_data = self.get_product_details(item_id)
+        if product_data is None:
+            product_data = self.get_product_details(item_id)
         
         if not product_data:
             return {
@@ -369,23 +374,53 @@ class EbayAPI:
             'formatted': formatted
         }
 
-    def get_shipping_price(self, item_id):
-        """Get the first available shipping cost from eBay item details."""
-        product_data = self.get_product_details(item_id)
+    def get_shipping_price(self, item_id, product_data=None):
+        """Get the cheapest available shipping cost from eBay item details."""
+        if product_data is None:
+            product_data = self.get_product_details(item_id)
 
         if not product_data:
             return ''
 
+        candidate_values = []
+
         shipping_options = product_data.get('shippingOptions') or []
         for option in shipping_options:
             shipping_cost = option.get('shippingCost', {})
-            value = shipping_cost.get('value')
-            if value not in (None, ''):
-                return str(value)
+            for key in ('value', 'convertedFromValue'):
+                value = shipping_cost.get(key)
+                if value not in (None, ''):
+                    candidate_values.append(value)
+
+            shipping_service_cost = option.get('shippingServiceCost', {})
+            for key in ('value', 'convertedFromValue'):
+                value = shipping_service_cost.get(key)
+                if value not in (None, ''):
+                    candidate_values.append(value)
+
+        summary = product_data.get('shippingCostSummary', {})
+        for key in ('shippingServiceCost', 'shippingCost'):
+            obj = summary.get(key, {})
+            if isinstance(obj, dict):
+                for value_key in ('value', 'convertedFromValue'):
+                    value = obj.get(value_key)
+                    if value not in (None, ''):
+                        candidate_values.append(value)
+
+        parsed_values = []
+        for raw in candidate_values:
+            try:
+                parsed_values.append(float(raw))
+            except (TypeError, ValueError):
+                continue
+
+        if parsed_values:
+            cheapest = min(parsed_values)
+            return str(int(cheapest)) if cheapest.is_integer() else str(cheapest)
 
         return ''
     
-    def get_product_description(self, item_id):
+    def get_product_description(self, item_id, product_data=None):
         """
         Get full product description from seller
         
@@ -395,7 +430,8 @@ class EbayAPI:
         Returns:
             Product description string or None
         """
-        product_data = self.get_product_details(item_id)
+        if product_data is None:
+            product_data = self.get_product_details(item_id)
         
         if not product_data:
             return None

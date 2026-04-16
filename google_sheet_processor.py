@@ -229,7 +229,6 @@ class GoogleSheetProcessor:
             # +2 because sheet row 1 is header and data starts at row 2.
             target_row = sheet_row_idx + 2
             updates = {
-                'LotNum': result.get('row_number', ''),
                 'Link': result.get('url', ''),
                 'Status': result.get('status', ''),
                 'title': result.get('title', ''),
@@ -240,6 +239,10 @@ class GoogleSheetProcessor:
                 'rewritten_title': result.get('rewritten_title', ''),
                 'rewritten_description': result.get('rewritten_description', ''),
             }
+
+            explicit_lotnum = result.get('lotnum')
+            if explicit_lotnum not in (None, ''):
+                updates['LotNum'] = explicit_lotnum
 
             availability_value = self._availability_display(result.get('available'))
             if availability_value is not None:
