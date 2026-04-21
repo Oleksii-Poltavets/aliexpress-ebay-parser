@@ -48,6 +48,8 @@ class AliExpressAPI:
         # Prefer endpoint 6 first because it most consistently includes description payloads.
         endpoints = ['item_detail_6', 'item_detail_2', 'item_detail_3']
         
+        errors = []
+        
         for endpoint in endpoints:
             url = f"https://aliexpress-datahub.p.rapidapi.com/{endpoint}"
             
@@ -76,6 +78,7 @@ class AliExpressAPI:
                 
                 # Check for API errors or empty response
                 if not data or 'result' not in data:
+                    errors.append(f"{endpoint}: No result in response")
                     continue
                 
                 result = data.get('result', {})
@@ -86,18 +89,25 @@ class AliExpressAPI:
                     print(f"✓ Using endpoint: {endpoint}")
                     return data
                 else:
-                    # Try next endpoint
+                    status_code = status.get('code', 'unknown')
+                    status_data = status.get('data', 'unknown')
+                    error_msg = status.get('msg', 'unknown error')
+                    errors.append(f"{endpoint}: code={status_code}, data={status_data}, msg={error_msg}")
                     continue
                 
             except requests.exceptions.RequestException as e:
-                # Try next endpoint
+                errors.append(f"{endpoint}: Network error: {str(e)[:100]}")
                 continue
             except json.JSONDecodeError as e:
-                # Try next endpoint
+                errors.append(f"{endpoint}: JSON parse error: {str(e)[:100]}")
                 continue
         
-        # All endpoints failed
+        # All endpoints failed - log details for debugging
         print(f"All endpoints failed for product {product_id}")
+        if errors:
+            print("  API diagnostics:")
+            for error in errors:
+                print(f"    - {error}")
         return None
     
     def check_availability(self, product_id, product_data=None):

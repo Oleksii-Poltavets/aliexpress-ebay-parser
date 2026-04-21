@@ -33,6 +33,28 @@ class GoogleSheetProcessor:
             return 'Unavailable'
         return None
 
+    @staticmethod
+    def _truncate_for_sheet(value, max_chars=49000):
+        """
+        Truncate cell values to fit within Google Sheets' 50,000 character limit.
+        Uses 49,000 as a safer limit to account for any formatting.
+        
+        Args:
+            value: The value to potentially truncate
+            max_chars: Maximum characters allowed (default 49,000)
+            
+        Returns:
+            Truncated string value, or empty string if value is None
+        """
+        if value is None:
+            return ''
+        
+        str_value = str(value)
+        if len(str_value) > max_chars:
+            truncated = str_value[:max_chars-3] + '...'
+            return truncated
+        return str_value
+
     def __init__(self, sheet_url, service_account_file):
         self.sheet_url = sheet_url
         self.service_account_file = service_account_file
@@ -231,13 +253,13 @@ class GoogleSheetProcessor:
             updates = {
                 'Link': result.get('url', ''),
                 'Status': result.get('status', ''),
-                'title': result.get('title', ''),
-                'description': result.get('description', ''),
+                'title': self._truncate_for_sheet(result.get('title', '')),
+                'description': self._truncate_for_sheet(result.get('description', '')),
                 'price': result.get('price', ''),
                 'shipping_price': result.get('shipping_price', ''),
                 'seller_nick': result.get('seller_name', ''),
-                'rewritten_title': result.get('rewritten_title', ''),
-                'rewritten_description': result.get('rewritten_description', ''),
+                'rewritten_title': self._truncate_for_sheet(result.get('rewritten_title', '')),
+                'rewritten_description': self._truncate_for_sheet(result.get('rewritten_description', '')),
             }
 
             explicit_lotnum = result.get('lotnum')
