@@ -125,11 +125,14 @@ class ProductScraper:
                 print(f"âŒ {result['error']}")
                 return self._finalize_result(result)
 
-            unavailable_reason = self._get_unavailable_url_reason(url, marketplace)
+            unavailable_reason, resolved_url = self._get_unavailable_url_reason(url, marketplace)
             if unavailable_reason:
                 result['error'] = unavailable_reason
                 print(f"âŒ {result['error']}")
                 return self._finalize_result(result)
+            # Use the resolved URL (handles cross-market redirects like gatewayAdapt)
+            if resolved_url and resolved_url != url:
+                url = resolved_url
 
             # Process based on marketplace
             if marketplace == 'aliexpress':
@@ -179,7 +182,9 @@ class ProductScraper:
 
     @staticmethod
     def _get_unavailable_url_reason(url, marketplace):
-        """Return a reason string when URL is unavailable, otherwise None."""
+        """Return (reason, resolved_url) where reason is a string if the URL is
+        unavailable/invalid and None otherwise. resolved_url is the final URL
+        after redirects (may differ from the original for cross-market listings)."""
         headers = {
             'User-Agent': (
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -197,24 +202,27 @@ class ProductScraper:
             )
 
             if response.status_code == 404:
-                return 'Product URL returned 404'
+                return 'Product URL returned 404', url
 
             final_url = response.url or ''
             if marketplace == 'aliexpress' and not validate_aliexpress_url(final_url):
-                return 'Product URL redirected to a non-product page'
+                return 'Product URL redirected to a non-product page', url
             if marketplace == 'ebay' and not validate_ebay_url(final_url):
-                return 'Product URL redirected to a non-product page'
+                return 'Product URL redirected to a non-product page', url
 
             if marketplace == 'aliexpress':
                 original_id = extract_product_id(url)
                 final_id = extract_product_id(final_url)
                 if original_id and final_id and original_id != final_id:
-                    return 'Product URL redirected to a different product'
+                    # Cross-market redirect (e.g. gatewayAdapt=usa2glo): use the
+                    # resolved URL so the correct global product ID is scraped.
+                    print(f"ℹ️ URL redirected from product {original_id} to {final_id}, using resolved URL")
+                    return None, final_url
             if marketplace == 'ebay':
                 original_id = extract_ebay_item_id(url)
                 final_id = extract_ebay_item_id(final_url)
                 if original_id and final_id and original_id != final_id:
-                    return 'Product URL redirected to a different product'
+                    return 'Product URL redirected to a different product', url
 
             html_probe = (response.text or '')[:6000].lower()
             unavailable_markers = [
@@ -225,12 +233,12 @@ class ProductScraper:
                 'oops! looks like this page is unavailable',
             ]
             if any(marker in html_probe for marker in unavailable_markers):
-                return 'Product page appears unavailable'
+                return 'Product page appears unavailable', url
 
-            return None
+            return None, final_url if final_url else url
         except requests.RequestException:
             # Do not block scraping due to transient network problems.
-            return None
+            return None, url
     
     def _process_aliexpress(self, url, result, skip_images=False, skip_text_fields=False):
         """Process AliExpress product"""
@@ -245,27 +253,31 @@ class ProductScraper:
         print(f"Product ID: {product_id}")
 
         product_data = self.aliexpress_api.get_product_details(product_id)
-        if not product_data:
-            result['error'] = 'Failed to fetch product data from AliExpress API'
-            print(f"❌ {result['error']}")
-            return result
+        api_data_available = bool(product_data)
+        if not api_data_available:
+            print("⚠️ Failed to fetch full product data from AliExpress API; using fallback description/images when available")
+        safe_product_data = product_data if api_data_available else {}
         
         # Get product details (title, description, price)
         print("\nFetching product details...")
-        seller_name = self.aliexpress_api.get_seller_name(product_id, product_data=product_data)
-        price_info = self.aliexpress_api.get_product_price(product_id, product_data=product_data)
+        seller_name = self.aliexpress_api.get_seller_name(product_id, product_data=product_data) if api_data_available else None
+        price_info = self.aliexpress_api.get_product_price(product_id, product_data=product_data) if api_data_available else {'formatted': 'N/A'}
 
         title = None
         description = None
         if not skip_text_fields:
-            title = self.aliexpress_api.get_product_title(product_id, product_data=product_data)
-            description = self.aliexpress_api.get_product_description(product_id, product_data=product_data)
+            title = self.aliexpress_api.get_product_title(
+                product_id,
+                product_data=safe_product_data,
+                product_url=url,
+            )
+            description = self.aliexpress_api.get_product_description(product_id, product_data=safe_product_data)
         
         result['title'] = title
         result['seller_name'] = seller_name
         result['description'] = description
         result['price'] = price_info.get('formatted', 'N/A')
-        result['shipping_price'] = self.aliexpress_api.get_shipping_price(product_id, product_data=product_data)
+        result['shipping_price'] = self.aliexpress_api.get_shipping_price(product_id, product_data=safe_product_data)
         
         if title:
             print(f"Title: {title}")
@@ -275,23 +287,37 @@ class ProductScraper:
             print(f"Price: {price_info['formatted']}")
         
         # Check availability
-        print("\nChecking availability...")
-        availability = self.aliexpress_api.check_availability(product_id, product_data=product_data)
-        
-        result['available'] = availability['available']
-        result['stock_quantity'] = availability.get('stock_quantity')
-        
-        if availability['available']:
-            print(f"âœ“ Product available")
-            if availability.get('stock_quantity'):
-                print(f"  Stock: {availability['stock_quantity']} units")
-        else:
-            print(f"âœ— Not available: {availability['reason']}")
+        if api_data_available:
+            print("\nChecking availability...")
+            availability = self.aliexpress_api.check_availability(product_id, product_data=product_data)
 
-        if availability['available'] is False:
-            print("\nSkipping image download because product is unavailable")
-            result['images_downloaded'] = 0
-            return result
+            result['available'] = availability['available']
+            result['stock_quantity'] = availability.get('stock_quantity')
+
+            if availability['available']:
+                print(f"âœ“ Product available")
+                if availability.get('stock_quantity'):
+                    print(f"  Stock: {availability['stock_quantity']} units")
+            else:
+                print(f"âœ— Not available: {availability['reason']}")
+
+            if availability['available'] is False:
+                print("\nSkipping image download because product is unavailable")
+                result['images_downloaded'] = 0
+                return result
+        else:
+            result['available'] = self.aliexpress_api.infer_availability_from_page(product_id, product_url=url)
+            result['stock_quantity'] = None
+            if result['available'] is True:
+                print("\nChecking availability...")
+                print("âœ“ Product available (fallback inference)")
+            elif result['available'] is False:
+                print("\nChecking availability...")
+                print("âœ— Not available (fallback inference)")
+                result['images_downloaded'] = 0
+                return result
+            else:
+                print("\nAvailability unknown (full product endpoint unavailable)")
         
         if skip_images:
             print("\nSkipping image download")
@@ -301,7 +327,11 @@ class ProductScraper:
 
         # Get and download images
         print("\nFetching product images...")
-        image_urls = self.aliexpress_api.get_product_images(product_id, product_data=product_data)
+        image_urls = self.aliexpress_api.get_product_images(
+            product_id,
+            product_data=safe_product_data,
+            product_url=url,
+        )
 
         if image_urls:
             print(f"Found {len(image_urls)} images")
@@ -334,24 +364,32 @@ class ProductScraper:
         print(f"Product ID: {product_id}")
 
         product_data = self.aliexpress_api.get_product_details(product_id)
-        if not product_data:
-            result['error'] = 'Failed to fetch product data from AliExpress API'
-            print(f"❌ {result['error']}")
-            return result
+        api_data_available = bool(product_data)
+        if not api_data_available:
+            print("⚠️ Failed to fetch full product data from AliExpress API; trying image fallback")
 
         print("\nFetching product images only...")
-        availability = self.aliexpress_api.check_availability(product_id, product_data=product_data)
-        result['available'] = availability['available']
-        result['stock_quantity'] = availability.get('stock_quantity')
+        if api_data_available:
+            availability = self.aliexpress_api.check_availability(product_id, product_data=product_data)
+            result['available'] = availability['available']
+            result['stock_quantity'] = availability.get('stock_quantity')
 
-        if availability['available'] is False:
-            print(f"âœ— Not available: {availability['reason']}")
-            print("Skipping image download because product is unavailable")
-            result['images_downloaded'] = 0
-            result['status'] = 'Unavailable - images skipped'
-            return result
+            if availability['available'] is False:
+                print(f"âœ— Not available: {availability['reason']}")
+                print("Skipping image download because product is unavailable")
+                result['images_downloaded'] = 0
+                result['status'] = 'Unavailable - images skipped'
+                return result
+        else:
+            result['available'] = None
+            result['stock_quantity'] = None
+            print("Availability unknown (full product endpoint unavailable)")
 
-        image_urls = self.aliexpress_api.get_product_images(product_id, product_data=product_data)
+        image_urls = self.aliexpress_api.get_product_images(
+            product_id,
+            product_data=product_data,
+            product_url=url,
+        )
 
         if image_urls:
             print(f"Found {len(image_urls)} images")
@@ -673,6 +711,8 @@ class ProductScraper:
             print("No links found in sheet")
             return []
 
+        processor.ensure_result_columns()
+
         lotnum_col_idx = (
             processor.headers.index('LotNum')
             if 'LotNum' in processor.headers
@@ -705,10 +745,10 @@ class ProductScraper:
             result['sheet_row_index'] = sheet_row_idx
             self.results.append(result)
 
-        try:
-            processor.upload_results(self.results)
-        except Exception as e:
-            print(f"Error uploading results to Google Sheet: {e}")
+            try:
+                processor.upload_results([result])
+            except Exception as e:
+                print(f"Error uploading result for sheet row {sheet_row_idx + 2}: {e}")
 
         self._print_summary()
 

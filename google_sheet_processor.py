@@ -256,11 +256,25 @@ class GoogleSheetProcessor:
                 'title': self._truncate_for_sheet(result.get('title', '')),
                 'description': self._truncate_for_sheet(result.get('description', '')),
                 'price': result.get('price', ''),
-                'shipping_price': result.get('shipping_price', ''),
-                'seller_nick': result.get('seller_name', ''),
-                'rewritten_title': self._truncate_for_sheet(result.get('rewritten_title', '')),
-                'rewritten_description': self._truncate_for_sheet(result.get('rewritten_description', '')),
             }
+
+            # Avoid clearing existing seller/shipping values in sheets when
+            # current scrape run cannot resolve them.
+            shipping_price = result.get('shipping_price')
+            if shipping_price not in (None, ''):
+                updates['shipping_price'] = shipping_price
+
+            seller_name = result.get('seller_name')
+            if seller_name not in (None, ''):
+                updates['seller_nick'] = seller_name
+
+            rewritten_title = result.get('rewritten_title')
+            if rewritten_title is not None:
+                updates['rewritten_title'] = self._truncate_for_sheet(rewritten_title)
+
+            rewritten_description = result.get('rewritten_description')
+            if rewritten_description is not None:
+                updates['rewritten_description'] = self._truncate_for_sheet(rewritten_description)
 
             explicit_lotnum = result.get('lotnum')
             if explicit_lotnum not in (None, ''):
@@ -287,6 +301,13 @@ class GoogleSheetProcessor:
 
             if batch_requests:
                 self.worksheet.batch_update(batch_requests)
+                print(
+                    f"Uploaded row {target_row}: "
+                    f"status={updates.get('Status', '')}, "
+                    f"seller_nick={updates.get('seller_nick', '[unchanged]')}, "
+                    f"shipping_price={updates.get('shipping_price', '[unchanged]')}, "
+                    f"availability={updates.get('availability') or updates.get('Avalibility') or '[unchanged]'}"
+                )
 
         print(f"Uploaded results for {len(results)} rows to Google Sheet")
         return True

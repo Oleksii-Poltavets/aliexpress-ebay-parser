@@ -6,6 +6,7 @@ import time
 import requests
 import json
 import re
+from html import unescape
 from config import Config
 
 
@@ -18,6 +19,8 @@ class AliExpressAPI:
         self.base_url = f"https://{self.api_host}"
         self.last_request_time = 0
         self.request_delay = 1.0 / Config.MAX_REQUESTS_PER_SECOND
+        self._item_desc_cache = {}
+        self._product_page_cache = {}
         
         # RapidAPI headers
         self.headers = {
@@ -43,70 +46,77 @@ class AliExpressAPI:
         Returns:
             Dictionary containing product details or None if error
         """
-        self._rate_limit()
-        
         # Prefer endpoint 6 first because it most consistently includes description payloads.
         endpoints = ['item_detail_6', 'item_detail_2', 'item_detail_3']
-        
-        errors = []
-        
-        for endpoint in endpoints:
-            url = f"https://aliexpress-datahub.p.rapidapi.com/{endpoint}"
-            
-            querystring = {
-                'itemId': str(product_id)
-            }
-            
-            try:
-                response = requests.get(
-                    url,
-                    headers=self.headers,
-                    params=querystring,
-                    timeout=Config.REQUEST_TIMEOUT
-                )
-                
-                # Check for rate limit error
-                if response.status_code == 429:
-                    print(f"⚠️ Rate limit exceeded! You've hit your API quota.")
-                    print(f"   Please wait for your quota to reset or upgrade your plan.")
-                    print(f"   Check: https://rapidapi.com/speedapi_com/api/aliexpress-datahub")
-                    return None
-                
-                response.raise_for_status()
-                
-                data = response.json()
-                
-                # Check for API errors or empty response
-                if not data or 'result' not in data:
-                    errors.append(f"{endpoint}: No result in response")
-                    continue
-                
-                result = data.get('result', {})
-                status = result.get('status', {})
-                
-                # Check if request was successful
-                if status.get('code') == 200 and status.get('data') == 'success':
-                    print(f"✓ Using endpoint: {endpoint}")
-                    return data
-                else:
+        max_attempts = 3
+        all_errors = []
+
+        for attempt in range(1, max_attempts + 1):
+            self._rate_limit()
+            attempt_errors = []
+
+            for endpoint in endpoints:
+                url = f"https://aliexpress-datahub.p.rapidapi.com/{endpoint}"
+
+                querystring = {
+                    'itemId': str(product_id)
+                }
+
+                try:
+                    response = requests.get(
+                        url,
+                        headers=self.headers,
+                        params=querystring,
+                        timeout=Config.REQUEST_TIMEOUT
+                    )
+
+                    # Check for rate limit error
+                    if response.status_code == 429:
+                        print("⚠️ Rate limit exceeded! You've hit your API quota.")
+                        print("   Please wait for your quota to reset or upgrade your plan.")
+                        print("   Check: https://rapidapi.com/speedapi_com/api/aliexpress-datahub")
+                        return None
+
+                    response.raise_for_status()
+
+                    data = response.json()
+
+                    # Check for API errors or empty response
+                    if not data or 'result' not in data:
+                        attempt_errors.append(f"{endpoint}: No result in response")
+                        continue
+
+                    result = data.get('result', {})
+                    status = result.get('status', {})
+
+                    # Check if request was successful
+                    if status.get('code') == 200 and status.get('data') == 'success':
+                        print(f"✓ Using endpoint: {endpoint}")
+                        return data
+
                     status_code = status.get('code', 'unknown')
                     status_data = status.get('data', 'unknown')
                     error_msg = status.get('msg', 'unknown error')
-                    errors.append(f"{endpoint}: code={status_code}, data={status_data}, msg={error_msg}")
-                    continue
-                
-            except requests.exceptions.RequestException as e:
-                errors.append(f"{endpoint}: Network error: {str(e)[:100]}")
-                continue
-            except json.JSONDecodeError as e:
-                errors.append(f"{endpoint}: JSON parse error: {str(e)[:100]}")
-                continue
-        
+                    attempt_errors.append(
+                        f"{endpoint}: code={status_code}, data={status_data}, msg={error_msg}"
+                    )
+
+                except requests.exceptions.RequestException as e:
+                    attempt_errors.append(f"{endpoint}: Network error: {str(e)[:100]}")
+                except json.JSONDecodeError as e:
+                    attempt_errors.append(f"{endpoint}: JSON parse error: {str(e)[:100]}")
+
+            all_errors.extend([f"attempt {attempt} - {err}" for err in attempt_errors])
+
+            # Retry transient endpoint failures before giving up.
+            if attempt < max_attempts:
+                time.sleep(min(1.5 * attempt, 3.0))
+
         # All endpoints failed - log details for debugging
         print(f"All endpoints failed for product {product_id}")
-        if errors:
+        if all_errors:
             print("  API diagnostics:")
-            for error in errors:
+            for error in all_errors:
                 print(f"    - {error}")
         return None
     
@@ -183,7 +193,7 @@ class AliExpressAPI:
             'product_title': item.get('title', 'N/A') if item else 'N/A'
         }
     
-    def get_product_images(self, product_id, product_data=None):
+    def get_product_images(self, product_id, product_data=None, product_url=None):
         """
         Get list of product image URLs
         
@@ -197,7 +207,10 @@ class AliExpressAPI:
             product_data = self.get_product_details(product_id)
         
         if not product_data:
-            return []
+            images = self._get_images_from_item_desc(product_id)
+            if images:
+                return images
+            return self._get_images_from_product_page(product_id, product_url=product_url)
         
         result = product_data.get('result', {})
         item = result.get('item', {})
@@ -240,10 +253,105 @@ class AliExpressAPI:
                     img = 'https:' + img
                 seen.add(img)
                 unique_images.append(img)
-        
-        return unique_images
+
+        if unique_images:
+            return unique_images
+
+        # Fallback when item_detail payload exists but carries no image list.
+        images = self._get_images_from_item_desc(product_id)
+        if images:
+            return images
+        return self._get_images_from_product_page(product_id, product_url=product_url)
+
+    def _get_images_from_product_page(self, product_id, product_url=None):
+        """Fallback: extract image URLs from public product page HTML."""
+        image_urls = []
+        seen = set()
+
+        for page_html in self._get_product_page_html_candidates(product_url, product_id):
+            # Preferred source when present in embedded data.
+            list_match = re.search(r'"imagePathList"\s*:\s*\[(.*?)\]', page_html, re.IGNORECASE | re.DOTALL)
+            if list_match:
+                payload = list_match.group(1)
+                for match in re.findall(r'"(https?:)?//([^"\\]+)"', payload):
+                    prefix, path = match
+                    url = f"{prefix or 'https:'}//{path}"
+                    if url not in seen:
+                        seen.add(url)
+                        image_urls.append(url)
+
+            # Generic fallback for direct image links in page source.
+            for url in re.findall(r'(https?:)?//[^"\'\s>]+\.(?:jpg|jpeg|png|webp)', page_html, re.IGNORECASE):
+                if isinstance(url, tuple):
+                    # When regex returns groups, rebuild the full URL.
+                    url = ''.join(url)
+                if url.startswith('//'):
+                    url = 'https:' + url
+                elif not url.startswith('http'):
+                    url = 'https://' + url.lstrip('/')
+                if 'alicdn.com' not in url and 'aliexpress-media.com' not in url:
+                    continue
+                if url not in seen:
+                    seen.add(url)
+                    image_urls.append(url)
+
+        return image_urls
+
+    def _get_item_desc_item(self, product_id):
+        """Fetch and cache item payload from item_desc endpoint."""
+        cache_key = str(product_id)
+        if cache_key in self._item_desc_cache:
+            return self._item_desc_cache[cache_key]
+
+        self._rate_limit()
+        url = f"{self.base_url}/item_desc"
+        try:
+            response = requests.get(
+                url,
+                headers=self.headers,
+                params={'itemId': str(product_id)},
+                timeout=Config.REQUEST_TIMEOUT
+            )
+            response.raise_for_status()
+            data = response.json()
+            result = data.get('result', {})
+            status = result.get('status', {})
+            if status.get('code') != 200 or status.get('data') != 'success':
+                self._item_desc_cache[cache_key] = None
+                return None
+
+            item = result.get('item', {})
+            self._item_desc_cache[cache_key] = item if isinstance(item, dict) else None
+            return self._item_desc_cache[cache_key]
+        except Exception:
+            self._item_desc_cache[cache_key] = None
+            return None
+
+    def _get_images_from_item_desc(self, product_id):
+        """Fallback: fetch image URLs from the dedicated item_desc endpoint."""
+        item = self._get_item_desc_item(product_id)
+        try:
+            desc = (item or {}).get('description', {})
+            images = desc.get('images') if isinstance(desc, dict) else []
+            if not isinstance(images, list):
+                return []
+
+            unique_images = []
+            seen = set()
+            for img in images:
+                if not img:
+                    continue
+                if isinstance(img, str) and img.startswith('//'):
+                    img = 'https:' + img
+                if img in seen:
+                    continue
+                seen.add(img)
+                unique_images.append(img)
+            return unique_images
+        except Exception:
+            return []
     
-    def get_product_title(self, product_id, product_data=None):
+    def get_product_title(self, product_id, product_data=None, product_url=None):
         """
         Get product title
         
@@ -255,14 +363,158 @@ class AliExpressAPI:
         """
         if product_data is None:
             product_data = self.get_product_details(product_id)
-        
-        if not product_data:
+
+        if product_data:
+            result = product_data.get('result', {})
+            item = result.get('item', {})
+            title = item.get('title') or item.get('subject')
+            if title:
+                return title
+
+        # Fallbacks when item_detail endpoints return empty.
+        fallback_title = self._get_title_from_item_desc(product_id)
+        if fallback_title:
+            return fallback_title
+
+        fallback_title = self._get_title_from_product_page(product_url, product_id)
+        if fallback_title:
+            return fallback_title
+
+        return 'N/A'
+
+    def _get_title_from_item_desc(self, product_id):
+        """Fallback title from item_desc payload when available."""
+        item = self._get_item_desc_item(product_id)
+        if not item:
             return None
-        
-        result = product_data.get('result', {})
-        item = result.get('item', {})
-        
-        return item.get('title') or item.get('subject') or 'N/A'
+
+        for key in ('title', 'subject', 'name', 'itemTitle'):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    def _get_title_from_product_page(self, product_url, product_id):
+        """Fallback title by parsing og:title/title from public product page."""
+        for page_html in self._get_product_page_html_candidates(product_url, product_id):
+            try:
+                og_idx = page_html.lower().find('property="og:title"')
+                if og_idx >= 0:
+                    tag_end = page_html.find('>', og_idx)
+                    if tag_end > og_idx:
+                        og_tag = page_html[og_idx:tag_end + 1]
+                        content_marker = 'content="'
+                        marker_idx = og_tag.find(content_marker)
+                        if marker_idx >= 0:
+                            value_start = marker_idx + len(content_marker)
+                            value_end = og_tag.rfind('"')
+                            if value_end > value_start:
+                                raw_title = unescape(og_tag[value_start:value_end]).strip()
+                                clean_title = re.sub(r'\s*-\s*AliExpress.*$', '', raw_title, flags=re.IGNORECASE).strip()
+                                if len(clean_title) > 5:
+                                    return clean_title
+
+                og_match = re.search(
+                    r'<meta[^>]+property=["\']og:title["\'][^>]+content=(["\'])(.*?)\1',
+                    page_html,
+                    re.IGNORECASE | re.DOTALL,
+                )
+                if og_match:
+                    title = unescape(og_match.group(2)).strip()
+                    clean_title = re.sub(r'\s*-\s*AliExpress.*$', '', title, flags=re.IGNORECASE).strip()
+                    if len(clean_title) > 5:
+                        return clean_title
+
+                title_match = re.search(r'<title>(.*?)</title>', page_html, re.IGNORECASE | re.DOTALL)
+                if title_match:
+                    raw_title = unescape(title_match.group(1))
+                    clean_title = re.sub(r'\s+', ' ', raw_title).strip()
+                    clean_title = re.sub(r'\s*\|\s*AliExpress.*$', '', clean_title, flags=re.IGNORECASE)
+                    clean_title = re.sub(r'\s*-\s*AliExpress.*$', '', clean_title, flags=re.IGNORECASE)
+                    if clean_title:
+                        return clean_title
+            except Exception:
+                continue
+
+        return None
+
+    def _get_product_page_html_candidates(self, product_url, product_id):
+        """Fetch candidate public product pages once and reuse them across fallbacks."""
+        candidate_urls = []
+        if product_url:
+            candidate_urls.append(product_url)
+        candidate_urls.append(f"https://www.aliexpress.com/item/{product_id}.html")
+        candidate_urls.append(f"https://www.aliexpress.us/item/{product_id}.html")
+
+        headers = {
+            'User-Agent': (
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/124.0.0.0 Safari/537.36'
+            )
+        }
+
+        for url in candidate_urls:
+            if not url or url in self._product_page_cache:
+                cached_html = self._product_page_cache.get(url)
+                if cached_html:
+                    yield cached_html
+                continue
+            try:
+                response = requests.get(url, headers=headers, timeout=Config.REQUEST_TIMEOUT)
+                response.raise_for_status()
+                page_html = response.text or ''
+                self._product_page_cache[url] = page_html
+                if page_html:
+                    yield page_html
+            except Exception:
+                self._product_page_cache[url] = None
+                continue
+
+    def infer_availability_from_page(self, product_id, product_url=None):
+        """Best-effort availability fallback from public page and item_desc presence."""
+        if self._get_item_desc_item(product_id):
+            return True
+
+        unavailable_markers = [
+            'sorry, this page is not available',
+            'page not found',
+            'this item is no longer available',
+            'product is unavailable',
+            'oops! looks like this page is unavailable',
+            'item temporarily unavailable',
+        ]
+        for page_html in self._get_product_page_html_candidates(product_url, product_id):
+            html_probe = page_html[:12000].lower()
+            if any(marker in html_probe for marker in unavailable_markers):
+                return False
+            if self._get_title_from_product_page(product_url, product_id):
+                return True
+
+        return None
+
+    def _get_shipping_price_from_description(self, product_id):
+        """Best-effort shipping fallback parsed from item_desc text."""
+        description = self._get_description_from_item_desc(product_id) or ''
+        if not description:
+            return ''
+
+        description_lower = description.lower()
+        if '$free' in description_lower or 'free shipping' in description_lower:
+            return '0'
+
+        patterns = [
+            r'shipping[^:]{0,60}:\s*(?:us\s*\$|\$)\s*(\d+(?:\.\d+)?)',
+            r'(?:shipping fee|shipping price|delivery fee)[^:]{0,40}:\s*(?:us\s*\$|\$)\s*(\d+(?:\.\d+)?)',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, description, re.IGNORECASE)
+            if not match:
+                continue
+            fee = float(match.group(1))
+            return str(int(fee)) if fee.is_integer() else str(fee)
+
+        return ''
 
     def get_seller_name(self, product_id, product_data=None):
         """
@@ -405,7 +657,7 @@ class AliExpressAPI:
             product_data = self.get_product_details(product_id)
 
         if not product_data:
-            return ''
+            return self._get_shipping_price_from_description(product_id)
 
         result = product_data.get('result', {})
         delivery = result.get('delivery', {})
@@ -433,7 +685,7 @@ class AliExpressAPI:
                 continue
 
         if not fees:
-            return ''
+            return self._get_shipping_price_from_description(product_id)
 
         cheapest_fee = min(fees)
         return str(int(cheapest_fee)) if cheapest_fee.is_integer() else str(cheapest_fee)
@@ -450,20 +702,20 @@ class AliExpressAPI:
         """
         if product_data is None:
             product_data = self.get_product_details(product_id)
-        
-        if not product_data:
-            return None
-        
-        result = product_data.get('result', {})
-        item = result.get('item', {})
-        
-        # Try various description fields - prioritize full description
-        description = (
-            item.get('description') or 
-            item.get('productDescription') or
-            item.get('detail') or
-            item.get('descriptionUrl')  # Sometimes only URL is provided
-        )
+
+        description = None
+
+        if product_data:
+            result = product_data.get('result', {})
+            item = result.get('item', {})
+
+            # Try various description fields - prioritize full description
+            description = (
+                item.get('description') or
+                item.get('productDescription') or
+                item.get('detail') or
+                item.get('descriptionUrl')  # Sometimes only URL is provided
+            )
 
         raw_html_description = None
         
@@ -492,5 +744,31 @@ class AliExpressAPI:
                     return raw_html_description.strip() or 'N/A'
                 if '<' in original_description and '>' in original_description:
                     return original_description.strip() or 'N/A'
-        
+
+        # If still no description, fall back to dedicated item_desc endpoint
+        if not description:
+            description = self._get_description_from_item_desc(product_id)
+
         return description or 'N/A'
+
+    def _get_description_from_item_desc(self, product_id):
+        """
+        Fallback: fetch description from the dedicated item_desc endpoint.
+        Returns a plain-text string or None.
+        """
+        item = self._get_item_desc_item(product_id)
+        try:
+            desc = (item or {}).get('description', {})
+            if not isinstance(desc, dict):
+                return None
+            text = desc.get('text')
+            if isinstance(text, list):
+                # Join list items into a single string
+                text = ' '.join(str(t) for t in text if t).strip()
+            elif isinstance(text, str):
+                text = text.strip()
+            else:
+                text = None
+            return text or None
+        except Exception:
+            return None
