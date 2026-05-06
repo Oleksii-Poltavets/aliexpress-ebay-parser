@@ -237,7 +237,10 @@ class EbayAPI:
                 pass  # If date parsing fails, continue with other checks
         
         # Check if item is available for purchase
-        available_quantity = product_data.get('estimatedAvailabilities', [{}])[0].get('estimatedAvailableQuantity', 0)
+        avail_entry = product_data.get('estimatedAvailabilities', [{}])[0]
+        availability_status = avail_entry.get('estimatedAvailabilityStatus', '')
+        # eBay may report quantity in either field depending on the listing type
+        available_quantity = avail_entry.get('estimatedAvailableQuantity') or avail_entry.get('estimatedRemainingQuantity', 0)
         
         # Check item condition (buyingOptions)
         buying_options = product_data.get('buyingOptions', [])
@@ -247,6 +250,14 @@ class EbayAPI:
         
         if not is_active:
             return False, 0, "Item is not active"
+        
+        # Trust the explicit availability status when present
+        if availability_status == 'IN_STOCK':
+            return True, available_quantity, "Available"
+        elif availability_status in ('OUT_OF_STOCK', 'LIMITED_STOCK_CRITICAL', 'TEMPORARILY_UNAVAILABLE'):
+            if available_quantity > 0:
+                return True, available_quantity, "Available"
+            return False, 0, "Out of stock"
         
         if available_quantity > 0:
             return True, available_quantity, "Available"
